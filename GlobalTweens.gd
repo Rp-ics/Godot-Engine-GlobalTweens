@@ -126,10 +126,10 @@ func blink(node: CanvasItem, times: int = 3, speed: float = 0.1):
 func fade(node: CanvasItem, from: float, to: float, dur: float = 0.4):
 	if not _is_valid(node): return
 	node.modulate.a = from
-	_new_tween(node).tween_property(node, "modulate:a", to, dur)
+	return _new_tween(node).tween_property(node, "modulate:a", to, dur)
 
-func hide(node: CanvasItem, dur: float = 0.3): fade(node, node.modulate.a, 0.0, dur)
-func show(node: CanvasItem, dur: float = 0.3): fade(node, node.modulate.a, 1.0, dur)
+func hide(node: CanvasItem, dur: float = 0.3): return fade(node, node.modulate.a, 0.0, dur)
+func show(node: CanvasItem, dur: float = 0.3): return fade(node, node.modulate.a, 1.0, dur)
 
 func color_flash(node: CanvasItem, color: Color = Color(1, 0, 0), dur: float = 0.15):
 	if not _is_valid(node): return
@@ -191,7 +191,7 @@ func move_to(node: Node2D, target: Vector2, dur: float = 0.4):
 func rotate(node: Node2D, degrees: float = 360.0, dur: float = 1.0):
 	if not _is_valid(node): return
 	var target = node.rotation_degrees + degrees
-	_new_tween(node).tween_property(node, "rotation_degrees", target, dur)
+	return _new_tween(node).tween_property(node, "rotation_degrees", target, dur)
 
 func bounce(node: Node2D, height: float = 20.0, dur: float = 0.3):
 	if not _is_valid(node): return
