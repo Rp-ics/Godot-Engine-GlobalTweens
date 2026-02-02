@@ -345,7 +345,7 @@ func slide_out(node: Node2D, to_dir: Vector2, dist: float = 200.0, dur: float = 
 #  EXTRA TWEENS / FX
 # =========================================================
 
-# Oscillazione verticale tipo float continuo
+# Continuous float-type vertical oscillation
 func float_y(node: Node2D, amplitude: float = 10.0, period: float = 1.0):
 	if not _is_valid(node): return
 	var orig_y = node.position.y
@@ -353,7 +353,7 @@ func float_y(node: Node2D, amplitude: float = 10.0, period: float = 1.0):
 	tween.tween_property(node, "position:y", orig_y - amplitude, period / 2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_loops()  # infinite loop
 	tween.tween_property(node, "position:y", orig_y + amplitude, period / 2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_loops()
 
-# Zoom con overshoot
+# Zoom with overshoot
 func zoom_pop(node: Node2D, factor: float = 1.5, dur: float = 0.3):
 	if not _is_valid(node): return
 	var t = _new_tween(node)
@@ -361,15 +361,21 @@ func zoom_pop(node: Node2D, factor: float = 1.5, dur: float = 0.3):
 	t.tween_property(node, "scale", s * factor, dur / 2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(node, "scale", s, dur / 2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 
-# Oscillazione tipo pendolo (swing)
-func swing(node: Node2D, degrees: float = 15.0, dur: float = 0.5):
+# SWING TODO
+func _swing_loop(node: Node2D, orig: float, degrees: float, dur: float):
 	if not _is_valid(node): return
 	var t = _new_tween(node)
-	var orig = node.rotation_degrees
-	t.tween_property(node, "rotation_degrees", orig + degrees, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_loops()
-	t.tween_property(node, "rotation_degrees", orig - degrees, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_loops()
+	t.tween_property(node, "rotation_degrees", orig + degrees, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(node, "rotation_degrees", orig - degrees, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.finished.connect(func(): _swing_loop(node, orig, degrees, dur))  # richiamo ricorsivo sicuro
 
-# Shake rotazionale
+func swing(node: Node2D, degrees: float = 15.0, dur: float = 0.5):
+	if not _is_valid(node): return
+	var orig = node.rotation_degrees
+	_swing_loop(node, orig, degrees, dur)
+
+
+# Shake with rotation
 func shake_rot(node: Node2D, intensity: float = 10.0, dur: float = 0.3):
 	if not _is_valid(node): return
 	var orig = node.rotation_degrees
@@ -378,7 +384,7 @@ func shake_rot(node: Node2D, intensity: float = 10.0, dur: float = 0.3):
 		await get_tree().create_timer(0.02).timeout
 	node.rotation_degrees = orig
 
-# Wobble scale su X e Y
+# Wobble scale on X e Y
 func wobble(node: Node2D, factor: float = 1.2, dur: float = 0.2, times: int = 3):
 	if not _is_valid(node): return
 	var t = _new_tween(node)
@@ -388,7 +394,7 @@ func wobble(node: Node2D, factor: float = 1.2, dur: float = 0.2, times: int = 3)
 		t.tween_property(node, "scale", orig * Vector2(1.0 / factor, factor), dur)
 	t.tween_property(node, "scale", orig, dur)
 
-# Random tween su posizione, rotazione e scala
+# Random tween on position, rotation, and scale
 func random_tween(node: Node2D, pos_range: float = 20.0, rot_range: float = 30.0, scale_range: float = 0.2, dur: float = 0.3):
 	if not _is_valid(node): return
 	var t = _new_tween(node)
@@ -397,7 +403,7 @@ func random_tween(node: Node2D, pos_range: float = 20.0, rot_range: float = 30.0
 	t.tween_property(node, "rotation_degrees", node.rotation_degrees + rng.randf_range(-rot_range, rot_range), dur)
 	t.tween_property(node, "scale", node.scale * (1.0 + rng.randf_range(-scale_range, scale_range)), dur)
 
-# Pulsazione colore
+# Color pulse
 func color_pulse(node: CanvasItem, color: Color = Color(1, 1, 0), dur: float = 0.4):
 	if not _is_valid(node): return
 	var t = _new_tween(node)
@@ -413,9 +419,269 @@ func elastic_pop(node: Node2D, factor: float = 1.5, dur: float = 0.4):
 	t.tween_property(node, "scale", s * factor, dur / 2).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
 	t.tween_property(node, "scale", s, dur / 2).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_IN)
 
-# Spin continuo
+# Spin
 func spin(node: Node2D, speed: float = 180.0):  # degrees per second
 	if not _is_valid(node): return
 	while _is_valid(node):
 		node.rotation_degrees += speed * get_process_delta_time()
 		await get_tree().process_frame
+
+
+func scene_fade_change(tree: SceneTree, scene_path: String, dur: float = 0.4):
+	var canvas := CanvasLayer.new()
+	var rect := ColorRect.new()
+	rect.color = Color.BLACK
+	rect.size = tree.root.size
+	rect.modulate.a = 0.0
+	canvas.add_child(rect)
+	tree.root.add_child(canvas)
+
+	var t = rect.create_tween()
+	t.tween_property(rect, "modulate:a", 1.0, dur)
+	await t.finished
+
+	tree.change_scene_to_file(scene_path)
+
+	var t2 = rect.create_tween()
+	t2.tween_property(rect, "modulate:a", 0.0, dur)
+	await t2.finished
+	canvas.queue_free()
+
+#USAGE: await GlobalTweens.scene_fade_change(get_tree(), "res://scenes/Game.tscn")
+# ================================================================================== #
+
+func scene_slide_change(tree: SceneTree, scene_path: String, dir: Vector2 = Vector2.LEFT, dur: float = 0.4):
+	var old_scene = tree.current_scene
+	var viewport_size = tree.root.size
+
+	var new_scene = load(scene_path).instantiate()
+	tree.root.add_child(new_scene)
+
+	new_scene.position = dir * viewport_size
+	var t = new_scene.create_tween()
+	t.parallel().tween_property(new_scene, "position", Vector2.ZERO, dur)
+	t.parallel().tween_property(old_scene, "position", -dir * viewport_size, dur)
+
+	await t.finished
+	old_scene.queue_free()
+	tree.current_scene = new_scene
+
+# === BUTTON HOWE === #
+func button_hover(btn: Control, scale: float = 1.1, dur: float = 0.12):
+	if not _is_valid(btn): return
+	var t = _new_tween(btn)
+	t.tween_property(btn, "scale", Vector2.ONE * scale, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+# === BUTTON UNHOVER === #
+func button_unhover(btn: Control, dur: float = 0.1):
+	if not _is_valid(btn): return
+	_new_tween(btn).tween_property(btn, "scale", Vector2.ONE, dur)
+
+# === BUTTON PRESS === #
+func button_press(btn: Control, dur: float = 0.08):
+	if not _is_valid(btn): return
+	var t = _new_tween(btn)
+	t.tween_property(btn, "scale", Vector2.ONE * 0.9, dur)
+	t.tween_property(btn, "scale", Vector2.ONE, dur)
+
+
+# === INTELLIGENT DISABLE === #
+func button_disable(btn: Control, dur: float = 0.2):
+	if not _is_valid(btn): return
+	btn.disabled = true
+	var t = _new_tween(btn)
+	t.parallel().tween_property(btn, "modulate:a", 0.4, dur)
+	t.parallel().tween_property(btn, "scale", Vector2.ONE * 0.95, dur)
+
+# === INTELLIGENT ENBLE === #
+func button_enable(btn: Control, dur: float = 0.2):
+	if not _is_valid(btn): return
+	btn.disabled = false
+	btn.modulate.a = 0.4
+	btn.scale = Vector2.ONE * 0.95
+	var t = _new_tween(btn)
+	t.parallel().tween_property(btn, "modulate:a", 1.0, dur)
+	t.parallel().tween_property(btn, "scale", Vector2.ONE, dur)
+
+# ============================================================ #
+# === SCROLLBAR: SCROLL TO=== #
+func scrollbar_scroll_to(scroll: ScrollBar, value: float, dur: float = 0.3):
+	if not _is_valid(scroll): return
+	var t = _new_tween(scroll)
+	t.tween_property(scroll, "value", clamp(value, scroll.min_value, scroll.max_value), dur)
+
+# USAGE: GlobalTweens.scrollbar_scroll_to($ScrollBar, 50)
+
+# === SCROLL PULSE (DEPRECATED) === #
+func scrollbar_thumb_pulse(scroll: ScrollBar, color: Color = Color(1,1,0), dur: float = 0.3):
+	if not _is_valid(scroll): return
+	var style = scroll.get("custom_styles/scrollbar")
+	if not style: return
+	var orig_color = style.get_color("fg_color")
+	var t = _new_tween(scroll)
+	t.tween_property(style, "fg_color", color, dur/2)
+	t.tween_property(style, "fg_color", orig_color, dur/2)
+
+
+# === SCROLL SHAKE (DEPRECATED) === #
+func scrollbar_shake(scroll: ScrollBar, intensity: float = 5.0, dur: float = 0.2):
+	if not _is_valid(scroll): return
+	var orig_value = scroll.value
+	var steps = int(dur / 0.02)
+	for i in range(steps):
+		scroll.value = orig_value + rng.randf_range(-intensity, intensity)
+		await get_tree().create_timer(0.02).timeout
+	scroll.value = orig_value
+
+
+# === SCROLL HIGHLIGHT (DEPRECATED) === #
+func scrollbar_highlight(scroll: ScrollBar, color: Color = Color(1,1,1,0.7), dur: float = 0.2):
+	if not _is_valid(scroll): return
+	var style = scroll.get("custom_styles/scrollbar")
+	if not style: return
+	var orig_color = style.get_color("fg_color")
+	var t = _new_tween(scroll)
+	t.tween_property(style, "fg_color", color, dur/2)
+	t.tween_property(style, "fg_color", orig_color, dur/2)
+
+# ===================================================== #
+# === INPUT === #
+func lineedit_attention(line: LineEdit, color: Color = Color(1,0,0), dur: float = 0.15):
+	if not _is_valid(line): return
+	var orig_modulate = line.modulate
+	var t = _new_tween(line)
+	t.tween_property(line, "modulate", color, dur / 2)
+	t.tween_property(line, "modulate", orig_modulate, dur / 2)
+
+
+func lineedit_pop(line: LineEdit, color: Color = Color(1,1,0), dur: float = 0.2):
+	if not _is_valid(line): return
+	var orig_color = line.modulate
+	var t = _new_tween(line)
+	t.tween_property(line, "modulate", color, dur/2)
+	t.tween_property(line, "modulate", orig_color, dur/2)
+
+# DEPRECATED
+func lineedit_highlight(line: LineEdit, color: Color = Color(1,1,0,0.3), dur: float = 0.3):
+	if not _is_valid(line): return
+	var style = line.get("custom_styles/normal")
+	if not style: return
+	var orig_color = style.get_color("bg_color")
+	var t = _new_tween(line)
+	t.tween_property(style, "bg_color", color, dur/2)
+	t.tween_property(style, "bg_color", orig_color, dur/2)
+
+
+func lineedit_error_feedback(line: LineEdit, color: Color = Color(1,0,0), dur: float = 0.2):
+	if not _is_valid(line): return
+
+	var orig_modulate = line.modulate
+	var t = GlobalTweens._new_tween(line)  # riutilizza _new_tween dal tuo file
+	t.tween_property(line, "modulate", color, dur / 2)
+	t.tween_property(line, "modulate", orig_modulate, dur / 2)
+
+# === NEW EXPLODE === #
+# =========================================================
+# Explode particles
+# =========================================================
+func explode_frames(node: Sprite2D, dur: float = 0.5, particle_scale: float = 0.3, spread: float = 50.0, shader: ShaderMaterial = null):
+	if not _is_valid(node): return
+	var tex = node.texture
+	if not tex: return
+	var size = tex.get_size()
+	var parent = node.get_parent()
+	if not parent: return
+
+	var cols = 4
+	var rows = 4
+	var w = size.x / cols
+	var h = size.y / rows
+
+	for x in range(cols):
+		for y in range(rows):
+			var frag = Sprite2D.new()
+			frag.texture = tex
+			frag.region_enabled = true
+			frag.region_rect = Rect2(x * w, y * h, w, h)
+			frag.position = node.global_position + Vector2(w/2, h/2)
+			if shader:
+				frag.material = shader.duplicate()
+			parent.add_child(frag)
+
+			var target_pos = frag.position + Vector2(
+				rng.randf_range(-spread, spread),
+				rng.randf_range(-spread, spread)
+			)
+
+			var t = _new_tween(frag)
+			t.parallel().tween_property(frag, "position", target_pos, dur)
+			t.parallel().tween_property(frag, "scale", Vector2.ONE * particle_scale, dur)
+			t.parallel().tween_property(frag, "modulate:a", 0.0, dur)
+			t.finished.connect(func(): if _is_valid(frag): frag.queue_free())
+
+	node.queue_free()
+
+
+# =========================================================
+# Implode particles (da sparso a nodo)
+# =========================================================
+func implode_frames(node: Sprite2D, dur: float = 0.5, particle_scale: float = 0.3, spread: float = 50.0, shader: ShaderMaterial = null):
+	if not _is_valid(node): return
+	var tex = node.texture
+	if not tex: return
+	var size = tex.get_size()
+	var parent = node.get_parent()
+	if not parent: return
+
+	var cols = 4
+	var rows = 4
+	var w = size.x / cols
+	var h = size.y / rows
+
+	for x in range(cols):
+		for y in range(rows):
+			var frag = Sprite2D.new()
+			frag.texture = tex
+			frag.region_enabled = true
+			frag.region_rect = Rect2(x * w, y * h, w, h)
+			# start sparso
+			frag.position = node.global_position + Vector2(
+				rng.randf_range(-spread, spread),
+				rng.randf_range(-spread, spread)
+			)
+			frag.scale = Vector2.ONE * particle_scale
+			if shader:
+				frag.material = shader.duplicate()
+			parent.add_child(frag)
+
+			var t = _new_tween(frag)
+			t.parallel().tween_property(frag, "position", node.global_position + Vector2(w/2, h/2), dur)
+			t.parallel().tween_property(frag, "scale", Vector2.ONE, dur)
+			t.parallel().tween_property(frag, "modulate:a", 1.0, dur)
+			t.finished.connect(func(): if _is_valid(frag): frag.queue_free())
+
+	# nascondi il nodo originale per la durata dell’animazione
+	node.hide()
+	await get_tree().create_timer(dur).timeout
+	node.show()
+
+# === FLOAT === #
+# Funzione helper privata
+func _float_random_loop(node: Node2D, orig_pos: Vector2, amplitude: Vector2, dur: float) -> void:
+	if not _is_valid(node):
+		return
+
+	var target = orig_pos + Vector2(
+		rng.randf_range(-amplitude.x, amplitude.x),
+		rng.randf_range(-amplitude.y, amplitude.y)
+	)
+
+	var t = _new_tween(node)
+	t.tween_property(node, "position", target, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.finished.connect(func(): _float_random_loop(node, orig_pos, amplitude, dur))
+
+# Funzione pubblica da chiamare
+func float_random(node: Node2D, amplitude: Vector2 = Vector2(10,10), dur: float = 1.0) -> void:
+	if not _is_valid(node):
+		return
+	_float_random_loop(node, node.position, amplitude, dur)
