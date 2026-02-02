@@ -1,0 +1,517 @@
+[gd_scene format=3 uid="uid://cn8h4x33ytsno"]
+
+[ext_resource type="Script" uid="uid://bulox3bbqe0iy" path="res://GRes/scripts/tween_example.gd" id="1_530jv"]
+[ext_resource type="Texture2D" uid="uid://b1cegpykcwcom" path="res://GRes/images/b1.png" id="2_xn5ku"]
+[ext_resource type="Texture2D" uid="uid://ba4kqdr04k0u6" path="res://GRes/images/b2.png" id="3_8t0we"]
+[ext_resource type="Texture2D" uid="uid://bty7cy6omkbck" path="res://icon.svg" id="4_xn5ku"]
+
+[sub_resource type="Theme" id="Theme_3iaef"]
+CheckButton/icons/checked = ExtResource("2_xn5ku")
+CheckButton/icons/checked_disabled = ExtResource("2_xn5ku")
+CheckButton/icons/checked_disabled_mirrored = ExtResource("3_8t0we")
+CheckButton/icons/checked_mirrored = ExtResource("3_8t0we")
+CheckButton/icons/unchecked = ExtResource("3_8t0we")
+CheckButton/icons/unchecked_disabled = ExtResource("3_8t0we")
+CheckButton/icons/unchecked_disabled_mirrored = ExtResource("2_xn5ku")
+CheckButton/icons/unchecked_mirrored = ExtResource("2_xn5ku")
+
+[node name="TweenExample" type="Node2D" unique_id=792822529]
+script = ExtResource("1_530jv")
+
+[node name="Label" type="Label" parent="." unique_id=1112646072]
+offset_right = 1151.0
+offset_bottom = 37.0
+theme_override_colors/font_color = Color(0.17254902, 1, 0, 0.13725491)
+theme_override_font_sizes/font_size = 30
+text = "GLOBALTWEEN EXAMPLES"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CheckButton" type="CheckButton" parent="." unique_id=2037009343]
+offset_left = 47.0
+offset_top = 68.0
+offset_right = 259.0
+offset_bottom = 189.0
+pivot_offset = Vector2(106, 60)
+theme = SubResource("Theme_3iaef")
+
+[node name="VScrollBar" type="VScrollBar" parent="." unique_id=2042710280]
+offset_left = 320.0
+offset_top = 60.0
+offset_right = 354.0
+offset_bottom = 208.36365
+min_value = 0.1
+max_value = 1.0
+step = 0.1
+value = 0.1
+
+[node name="info_count" type="Label" parent="VScrollBar" unique_id=1481371207]
+layout_mode = 0
+offset_left = -3.0
+offset_top = -27.0
+offset_right = 37.0
+offset_bottom = -4.0
+text = "0.1"
+horizontal_alignment = 1
+
+[node name="ena" type="Button" parent="." unique_id=1872968312]
+custom_minimum_size = Vector2(200, 60)
+offset_left = 387.0
+offset_top = 69.0
+offset_right = 587.0
+offset_bottom = 129.0
+pivot_offset = Vector2(100, 30)
+text = "Button 1"
+
+[node name="dis" type="Button" parent="." unique_id=64207465]
+custom_minimum_size = Vector2(200, 60)
+offset_left = 387.0
+offset_top = 141.0
+offset_right = 587.0
+offset_bottom = 201.0
+pivot_offset = Vector2(100, 30)
+disabled = true
+text = "Button 2"
+
+[node name="HScrollBarFX1" type="HScrollBar" parent="." unique_id=905608024]
+offset_left = 618.0
+offset_top = 62.0
+offset_right = 1068.0
+offset_bottom = 119.0
+step = 1.0
+
+[node name="count" type="Label" parent="HScrollBarFX1" unique_id=1651289006]
+layout_mode = 0
+offset_right = 449.0
+offset_bottom = 57.0
+theme_override_font_sizes/font_size = 40
+text = "0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="info" type="Label" parent="HScrollBarFX1" unique_id=1299655013]
+layout_mode = 0
+offset_top = -23.0
+offset_right = 442.0
+text = "Mouse enter & exit"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="LineEditFX1" type="LineEdit" parent="." unique_id=1737747457]
+offset_left = 620.0
+offset_top = 132.0
+offset_right = 837.0
+offset_bottom = 163.0
+placeholder_text = "Write here:"
+
+[node name="LineEditFX2" type="LineEdit" parent="." unique_id=872970929]
+offset_left = 620.0
+offset_top = 172.0
+offset_right = 837.0
+offset_bottom = 203.0
+placeholder_text = "Write here:"
+
+[node name="LineEditFX3" type="LineEdit" parent="." unique_id=649795108]
+offset_left = 852.0
+offset_top = 132.0
+offset_right = 1069.0
+offset_bottom = 163.0
+placeholder_text = "Write here:"
+
+[node name="imgs" type="Node2D" parent="." unique_id=611013469]
+
+[node name="btn1" type="Button" parent="imgs" unique_id=900493571]
+offset_left = 28.0
+offset_top = 232.0
+offset_right = 150.67743
+offset_bottom = 276.0
+text = "Bounce"
+
+[node name="i1" type="Sprite2D" parent="imgs" unique_id=1836480648]
+position = Vector2(89, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn2" type="Button" parent="imgs" unique_id=457133476]
+offset_left = 172.0
+offset_top = 232.0
+offset_right = 294.67743
+offset_bottom = 276.0
+text = "Blink"
+
+[node name="i2" type="Sprite2D" parent="imgs" unique_id=179378853]
+position = Vector2(233, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn3" type="Button" parent="imgs" unique_id=1129787768]
+offset_left = 316.0
+offset_top = 232.0
+offset_right = 438.67743
+offset_bottom = 276.0
+text = "Color Flash"
+
+[node name="i3" type="Sprite2D" parent="imgs" unique_id=1287849860]
+position = Vector2(377, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn4" type="Button" parent="imgs" unique_id=322594993]
+offset_left = 460.0
+offset_top = 232.0
+offset_right = 582.6774
+offset_bottom = 276.0
+text = "Color Pulse"
+
+[node name="i4" type="Sprite2D" parent="imgs" unique_id=1649259597]
+position = Vector2(521, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn5" type="Button" parent="imgs" unique_id=914112846]
+offset_left = 612.0
+offset_top = 232.0
+offset_right = 734.6774
+offset_bottom = 276.0
+text = "Elastick pop"
+
+[node name="i5" type="Sprite2D" parent="imgs" unique_id=420441309]
+position = Vector2(673, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn6" type="Button" parent="imgs" unique_id=962744693]
+offset_left = 756.0
+offset_top = 232.0
+offset_right = 878.6774
+offset_bottom = 276.0
+text = "Energy Pulse"
+
+[node name="i6" type="Sprite2D" parent="imgs" unique_id=2129958109]
+position = Vector2(817, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn7" type="Button" parent="imgs" unique_id=1478803476]
+offset_left = 900.0
+offset_top = 232.0
+offset_right = 1022.6775
+offset_bottom = 276.0
+text = "Explode"
+
+[node name="i7" type="Sprite2D" parent="imgs" unique_id=73653019]
+position = Vector2(961, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn8" type="Button" parent="imgs" unique_id=794117202]
+offset_left = 28.0
+offset_top = 448.0
+offset_right = 150.67743
+offset_bottom = 492.0
+text = "Fade-out"
+
+[node name="i8" type="Sprite2D" parent="imgs" unique_id=636240307]
+position = Vector2(89, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn9" type="Button" parent="imgs" unique_id=2041596023]
+offset_left = 172.0
+offset_top = 448.0
+offset_right = 294.67743
+offset_bottom = 492.0
+text = "Fade-in"
+
+[node name="i9" type="Sprite2D" parent="imgs" unique_id=269620407]
+modulate = Color(1, 1, 1, 0)
+position = Vector2(233, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn10" type="Button" parent="imgs" unique_id=2065257451]
+offset_left = 316.0
+offset_top = 448.0
+offset_right = 438.67743
+offset_bottom = 492.0
+text = "Glitch"
+
+[node name="i10" type="Sprite2D" parent="imgs" unique_id=1313383906]
+position = Vector2(377, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn11" type="Button" parent="imgs" unique_id=1903073537]
+offset_left = 460.0
+offset_top = 448.0
+offset_right = 582.6774
+offset_bottom = 492.0
+text = "Move to"
+
+[node name="i11" type="Sprite2D" parent="imgs" unique_id=755735083]
+position = Vector2(521, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn12" type="Button" parent="imgs" unique_id=475390904]
+offset_left = 612.0
+offset_top = 448.0
+offset_right = 734.6774
+offset_bottom = 492.0
+text = "Pop Scale"
+
+[node name="i12" type="Sprite2D" parent="imgs" unique_id=946197136]
+position = Vector2(673, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn13" type="Button" parent="imgs" unique_id=2137798996]
+offset_left = 756.0
+offset_top = 448.0
+offset_right = 883.0
+offset_bottom = 492.0
+text = "Quantum Jump"
+
+[node name="i13" type="Sprite2D" parent="imgs" unique_id=76744581]
+position = Vector2(817, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn14" type="Button" parent="imgs" unique_id=856773804]
+offset_left = 900.0
+offset_top = 448.0
+offset_right = 1022.6775
+offset_bottom = 492.0
+text = "Random"
+
+[node name="i14" type="Sprite2D" parent="imgs" unique_id=567621745]
+position = Vector2(961, 564)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn15" type="Button" parent="imgs" unique_id=304317807]
+offset_left = 1244.0
+offset_top = 24.0
+offset_right = 1366.6775
+offset_bottom = 68.0
+text = "Rotate"
+
+[node name="i15" type="Sprite2D" parent="imgs" unique_id=196268789]
+position = Vector2(1305, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn16" type="Button" parent="imgs" unique_id=983226884]
+offset_left = 1388.0
+offset_top = 24.0
+offset_right = 1510.6775
+offset_bottom = 68.0
+text = "Shake"
+
+[node name="i16" type="Sprite2D" parent="imgs" unique_id=1726500506]
+position = Vector2(1449, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn17" type="Button" parent="imgs" unique_id=1693997004]
+offset_left = 1532.0
+offset_top = 24.0
+offset_right = 1654.6775
+offset_bottom = 68.0
+text = "Shake & Totate"
+
+[node name="i17" type="Sprite2D" parent="imgs" unique_id=1857313236]
+position = Vector2(1593, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn18" type="Button" parent="imgs" unique_id=183388403]
+offset_left = 1676.0
+offset_top = 24.0
+offset_right = 1798.6775
+offset_bottom = 68.0
+text = "Show"
+
+[node name="i18" type="Sprite2D" parent="imgs" unique_id=1871856567]
+visible = false
+position = Vector2(1737, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn19" type="Button" parent="imgs" unique_id=721438523]
+offset_left = 1828.0
+offset_top = 24.0
+offset_right = 1950.6775
+offset_bottom = 68.0
+text = "Slide-in"
+
+[node name="i19" type="Sprite2D" parent="imgs" unique_id=1656881651]
+position = Vector2(1889, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn20" type="Button" parent="imgs" unique_id=2053954411]
+offset_left = 1972.0
+offset_top = 24.0
+offset_right = 2094.6775
+offset_bottom = 68.0
+text = "Slide-out"
+
+[node name="i20" type="Sprite2D" parent="imgs" unique_id=402934921]
+position = Vector2(2033, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn21" type="Button" parent="imgs" unique_id=806833191]
+offset_left = 2116.0
+offset_top = 24.0
+offset_right = 2238.6775
+offset_bottom = 68.0
+text = "Spawn-in"
+
+[node name="i21" type="Sprite2D" parent="imgs" unique_id=251774540]
+position = Vector2(2177, 140)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn22" type="Button" parent="imgs" unique_id=356467515]
+offset_left = 1237.0
+offset_top = 232.0
+offset_right = 1373.0
+offset_bottom = 286.0
+text = "Spin 
+(multiple press)"
+
+[node name="i22" type="Sprite2D" parent="imgs" unique_id=1908677303]
+position = Vector2(1305, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn23" type="Button" parent="imgs" unique_id=2103970368]
+offset_left = 1388.0
+offset_top = 232.0
+offset_right = 1510.6775
+offset_bottom = 276.0
+text = "Squash"
+
+[node name="i23" type="Sprite2D" parent="imgs" unique_id=691185038]
+position = Vector2(1449, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn24" type="Button" parent="imgs" unique_id=1219481290]
+offset_left = 1532.0
+offset_top = 232.0
+offset_right = 1657.0
+offset_bottom = 276.0
+text = "Swing"
+
+[node name="i24" type="Sprite2D" parent="imgs" unique_id=1008923249]
+position = Vector2(1593, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn25" type="Button" parent="imgs" unique_id=1399505511]
+offset_left = 1676.0
+offset_top = 232.0
+offset_right = 1798.6775
+offset_bottom = 276.0
+text = "Wobble"
+
+[node name="i25" type="Sprite2D" parent="imgs" unique_id=2111551761]
+position = Vector2(1737, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn26" type="Button" parent="imgs" unique_id=307946431]
+offset_left = 1828.0
+offset_top = 232.0
+offset_right = 1950.6775
+offset_bottom = 276.0
+text = "Explode Frame"
+
+[node name="i26" type="Sprite2D" parent="imgs" unique_id=1551679117]
+position = Vector2(1889, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn27" type="Button" parent="imgs" unique_id=1067270716]
+offset_left = 1972.0
+offset_top = 232.0
+offset_right = 2094.6775
+offset_bottom = 276.0
+text = "Implode  Frame"
+
+[node name="i27" type="Sprite2D" parent="imgs" unique_id=327564268]
+position = Vector2(2033, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="btn28" type="Button" parent="imgs" unique_id=1454719810]
+offset_left = 2116.0
+offset_top = 232.0
+offset_right = 2238.6775
+offset_bottom = 276.0
+text = "Float"
+
+[node name="i28" type="Sprite2D" parent="imgs" unique_id=50146827]
+position = Vector2(2177, 348)
+texture = ExtResource("4_xn5ku")
+
+[node name="reset" type="Timer" parent="imgs" unique_id=1388673456]
+wait_time = 2.0
+
+[node name="Marker2D" type="Marker2D" parent="." unique_id=1635098862]
+position = Vector2(30, 181)
+
+[node name="p1" type="Marker2D" parent="." unique_id=381933099]
+position = Vector2(2036, 570)
+
+[node name="p2" type="Marker2D" parent="." unique_id=1347812148]
+position = Vector2(1889, 572)
+
+[node name="CamP1" type="Marker2D" parent="." unique_id=700995917]
+position = Vector2(576, 324)
+
+[node name="CamP2" type="Marker2D" parent="." unique_id=238725131]
+position = Vector2(1728, 324)
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=488857138]
+position = Vector2(1728, 324)
+
+[node name="Next" type="Button" parent="." unique_id=808852174]
+offset_left = 1051.0
+offset_top = 335.0
+offset_right = 1119.0
+offset_bottom = 487.0
+theme_override_font_sizes/font_size = 100
+text = ">"
+
+[node name="Prev" type="Button" parent="." unique_id=1087159182]
+offset_left = 1171.0
+offset_top = 335.0
+offset_right = 1239.0
+offset_bottom = 487.0
+theme_override_font_sizes/font_size = 100
+text = "<"
+
+[connection signal="mouse_entered" from="CheckButton" to="." method="_on_check_button_mouse_entered"]
+[connection signal="mouse_exited" from="CheckButton" to="." method="_on_check_button_mouse_exited"]
+[connection signal="toggled" from="CheckButton" to="." method="_on_check_button_toggled"]
+[connection signal="value_changed" from="VScrollBar" to="." method="_on_v_scroll_bar_value_changed"]
+[connection signal="mouse_entered" from="ena" to="." method="_on_ena_mouse_entered"]
+[connection signal="mouse_exited" from="ena" to="." method="_on_ena_mouse_exited"]
+[connection signal="pressed" from="ena" to="." method="_on_ena_pressed"]
+[connection signal="mouse_entered" from="dis" to="." method="_on_dis_mouse_entered"]
+[connection signal="mouse_exited" from="dis" to="." method="_on_dis_mouse_exited"]
+[connection signal="pressed" from="dis" to="." method="_on_dis_pressed"]
+[connection signal="mouse_entered" from="HScrollBarFX1" to="." method="_on_h_scroll_bar_fx_1_mouse_entered"]
+[connection signal="mouse_exited" from="HScrollBarFX1" to="." method="_on_h_scroll_bar_fx_1_mouse_exited"]
+[connection signal="value_changed" from="HScrollBarFX1" to="." method="_on_h_scroll_bar_fx_1_value_changed"]
+[connection signal="text_changed" from="LineEditFX1" to="." method="_on_line_edit_fx_1_text_changed"]
+[connection signal="text_changed" from="LineEditFX2" to="." method="_on_line_edit_fx_2_text_changed"]
+[connection signal="text_changed" from="LineEditFX3" to="." method="_on_line_edit_fx_3_text_changed"]
+[connection signal="pressed" from="imgs/btn1" to="." method="_on_bounce_pressed"]
+[connection signal="pressed" from="imgs/btn2" to="." method="_on_btn_2_pressed"]
+[connection signal="pressed" from="imgs/btn3" to="." method="_on_btn_3_pressed"]
+[connection signal="pressed" from="imgs/btn4" to="." method="_on_btn_4_pressed"]
+[connection signal="pressed" from="imgs/btn5" to="." method="_on_btn_5_pressed"]
+[connection signal="pressed" from="imgs/btn6" to="." method="_on_btn_6_pressed"]
+[connection signal="pressed" from="imgs/btn7" to="." method="_on_btn_7_pressed"]
+[connection signal="pressed" from="imgs/btn8" to="." method="_on_btn_8_pressed"]
+[connection signal="pressed" from="imgs/btn9" to="." method="_on_btn_9_pressed"]
+[connection signal="pressed" from="imgs/btn10" to="." method="_on_btn_10_pressed"]
+[connection signal="pressed" from="imgs/btn11" to="." method="_on_btn_11_pressed"]
+[connection signal="pressed" from="imgs/btn12" to="." method="_on_btn_12_pressed"]
+[connection signal="pressed" from="imgs/btn13" to="." method="_on_btn_13_pressed"]
+[connection signal="pressed" from="imgs/btn14" to="." method="_on_btn_14_pressed"]
+[connection signal="pressed" from="imgs/btn15" to="." method="_on_btn_15_pressed"]
+[connection signal="pressed" from="imgs/btn16" to="." method="_on_btn_16_pressed"]
+[connection signal="pressed" from="imgs/btn17" to="." method="_on_btn_17_pressed"]
+[connection signal="pressed" from="imgs/btn18" to="." method="_on_btn_18_pressed"]
+[connection signal="pressed" from="imgs/btn19" to="." method="_on_btn_19_pressed"]
+[connection signal="pressed" from="imgs/btn20" to="." method="_on_btn_20_pressed"]
+[connection signal="pressed" from="imgs/btn21" to="." method="_on_btn_21_pressed"]
+[connection signal="pressed" from="imgs/btn22" to="." method="_on_btn_22_pressed"]
+[connection signal="pressed" from="imgs/btn23" to="." method="_on_btn_23_pressed"]
+[connection signal="pressed" from="imgs/btn24" to="." method="_on_btn_24_pressed"]
+[connection signal="pressed" from="imgs/btn25" to="." method="_on_btn_25_pressed"]
+[connection signal="pressed" from="imgs/btn26" to="." method="_on_btn_26_pressed"]
+[connection signal="pressed" from="imgs/btn27" to="." method="_on_btn_27_pressed"]
+[connection signal="pressed" from="imgs/btn28" to="." method="_on_btn_28_pressed"]
+[connection signal="timeout" from="imgs/reset" to="." method="_on_reset_timeout"]
+[connection signal="pressed" from="Next" to="." method="_on_next_pressed"]
+[connection signal="pressed" from="Prev" to="." method="_on_prev_pressed"]
