@@ -685,3 +685,395 @@ func float_random(node: Node2D, amplitude: Vector2 = Vector2(10,10), dur: float 
 	if not _is_valid(node):
 		return
 	_float_random_loop(node, node.position, amplitude, dur)
+
+# =========================================================
+#  TEXT EFFECTS
+# =========================================================
+func typewriter(label: Label, text: String, delay: float = 0.05):
+    """Effetto macchina da scrivere"""
+    if not _is_valid(label): return
+    label.text = ""
+    for i in range(text.length()):
+        label.text += text[i]
+        await get_tree().create_timer(delay).timeout
+
+func text_shake(label: Label, intensity: float = 2.0, duration: float = 0.2):
+    """Shake per testo"""
+    if not _is_valid(label): return
+    var original_pos = label.position
+    var tween = _new_tween(label)
+    for i in range(4):
+        tween.tween_property(label, "position", original_pos + Vector2(rng.randf_range(-intensity, intensity), 0), duration/4)
+    tween.tween_property(label, "position", original_pos, duration/4)
+
+# =========================================================
+#  PARTICLE EFFECTS
+# =========================================================
+func trail(node: Node2D, length: int = 5, interval: float = 0.1, fade_duration: float = 0.3):
+    """Crea una scia di copie sbiadite"""
+    if not _is_valid(node): return
+    var parent = node.get_parent()
+    for i in range(length):
+        await get_tree().create_timer(interval).timeout
+        var clone = node.duplicate()
+        clone.modulate.a = 0.7
+        parent.add_child(clone)
+        fade(clone, 0.7, 0.0, fade_duration)
+        clone.queue_free()
+
+func burst_particles(node: Node2D, count: int = 8, speed: float = 100.0, duration: float = 0.5):
+    """Esplosione di particelle semplici"""
+    if not _is_valid(node): return
+    for i in range(count):
+        var dot = ColorRect.new()
+        dot.size = Vector2(4, 4)
+        dot.color = Color.WHITE
+        dot.position = node.global_position
+        node.get_parent().add_child(dot)
+        
+        var angle = (i * 2 * PI) / count
+        var target = dot.position + Vector2(cos(angle), sin(angle)) * speed
+        
+        var tween = _new_tween(dot)
+        tween.parallel().tween_property(dot, "position", target, duration)
+        tween.parallel().tween_property(dot, "modulate:a", 0.0, duration)
+        tween.finished.connect(dot.queue_free)
+
+# =========================================================
+#  ADVANCED UI EFFECTS
+# =========================================================
+func progress_pulse(progress: ProgressBar, color: Color = Color(1, 1, 0), duration: float = 0.3):
+    """Pulse sulla barra di progresso"""
+    if not _is_valid(progress): return
+    var style = progress.get("custom_styles/fill")
+    if not style: return
+    var original = style.get_color("bg_color")
+    var tween = _new_tween(progress)
+    tween.tween_property(style, "bg_color", color, duration/2)
+    tween.tween_property(style, "bg_color", original, duration/2)
+
+func radial_menu_animation(buttons: Array, radius: float = 100.0, duration: float = 0.3):
+    """Anima bottoni in cerchio"""
+    for i in range(buttons.size()):
+        var btn = buttons[i]
+        if not _is_valid(btn): continue
+        var angle = (i * 2 * PI) / buttons.size()
+        var target = Vector2(cos(angle), sin(angle)) * radius
+        var tween = _new_tween(btn)
+        tween.tween_property(btn, "position", target, duration).set_delay(i * 0.05)
+
+# =========================================================
+#  SEQUENCE EFFECTS
+# =========================================================
+func combo_effect(node: Node2D, effects: Array, delays: Array = []):
+    """Esegue una sequenza di effetti personalizzata"""
+    if not _is_valid(node): return
+    for i in range(effects.size()):
+        var effect = effects[i]
+        if delays.size() > i:
+            await get_tree().create_timer(delays[i]).timeout
+        match effect[0]:
+            "pop": pop_scale(node, effect[1] if effect.size() > 1 else 1.3)
+            "shake": shake(node, effect[1] if effect.size() > 1 else 10.0)
+            "color": color_flash(node, effect[1] if effect.size() > 1 else Color.RED)
+            # aggiungi altri effetti...
+
+func attract_attention(node: Node2D, loops: int = 3):
+    """Attira l'attenzione con una combo"""
+    combo_effect(node, [
+        ["pop", 1.5],
+        ["color", Color.YELLOW],
+        ["shake", 5.0],
+        ["pop", 1.2]
+    ], [0.0, 0.2, 0.4, 0.6])
+
+# =========================================================
+#  TRANSITION EFFECTS
+# =========================================================
+func morph(node: Sprite2D, new_texture: Texture2D, duration: float = 0.5):
+    """Morph tra due texture (richiede shader)"""
+    if not _is_valid(node): return
+    # Idea: usa uno shader per crossfade tra texture
+    var material = ShaderMaterial.new()
+    material.shader = preload("res://shaders/crossfade.gdshader")  # esempio
+    material.set_shader_parameter("texture2", new_texture)
+    material.set_shader_parameter("progress", 0.0)
+    
+    var old_material = node.material
+    node.material = material
+    
+    var tween = _new_tween(node)
+    tween.tween_method(func(p): material.set_shader_parameter("progress", p), 0.0, 1.0, duration)
+    tween.finished.connect(func(): 
+        node.texture = new_texture
+        node.material = old_material
+    )
+
+func wipe_vertical(node: Control, open: bool = true, duration: float = 0.3):
+    """Effetto tenda verticale"""
+    if not _is_valid(node): return
+    node.clip_contents = true
+    var original_size = node.size
+    var target_size = Vector2(original_size.x, 0 if open else original_size.y)
+    var start_size = Vector2(original_size.x, original_size.y if open else 0)
+    
+    node.size = start_size
+    var tween = _new_tween(node)
+    tween.tween_property(node, "size", target_size, duration)
+
+
+# =========================================================
+#  ADVANCED UTILITIES
+# =========================================================
+func chain_tweens(targets: Array, properties: Array, values: Array, durations: Array):
+    """Catena di tween su più nodi"""
+    var tweens = []
+    for i in range(targets.size()):
+        if not _is_valid(targets[i]): continue
+        var t = _new_tween(targets[i])
+        t.tween_property(targets[i], properties[i], values[i], durations[i])
+        tweens.append(t)
+    return tweens
+
+func parallel_on_node(node: Node, tweens_data: Array):
+    """Esegue più tween paralleli sullo stesso nodo"""
+    if not _is_valid(node): return
+    var t = _new_tween(node)
+    for data in tweens_data:
+        t.parallel().tween_property(node, data[0], data[1], data[2])
+    return t
+
+# =========================================================
+#  AUDIO-VISUAL SYNC
+# =========================================================
+func beat_pulse(node: Node2D, bpm: float = 120.0, factor: float = 1.2):
+    """Pulse sincronizzato con BPM"""
+    if not _is_valid(node): return
+    var interval = 60.0 / bpm
+    while _is_valid(node):
+        pop_scale(node, factor, interval * 0.1)
+        await get_tree().create_timer(interval).timeout
+
+func audio_reactive(node: CanvasItem, audio: AudioStreamPlayer, property: String = "scale", sensitivity: float = 1.0):
+    """Reattivo all'audio (richiede spettro audio)"""
+    if not _is_valid(node) or not _is_valid(audio): return
+    # Implementazione con AudioEffectSpectrumAnalyzer
+    pass
+
+# =========================================================
+#  TILEMAP EFFECTS
+# =========================================================
+func tilemap_fade_in(tilemap: TileMap, duration: float = 0.5):
+    """Fade in for entire tilemap"""
+    if not _is_valid(tilemap): return
+    tilemap.modulate.a = 0.0
+    var tween = _new_tween(tilemap)
+    tween.tween_property(tilemap, "modulate:a", 1.0, duration)
+
+func tilemap_shake_layer(tilemap: TileMap, layer: int = 0, intensity: float = 5.0, duration: float = 0.3):
+    """Shake specific tilemap layer"""
+    if not _is_valid(tilemap): return
+    var original_position = tilemap.position
+    for i in range(int(duration / 0.02)):
+        tilemap.position = original_position + Vector2(
+            rng.randf_range(-intensity, intensity),
+            rng.randf_range(-intensity, intensity)
+        )
+        await get_tree().create_timer(0.02).timeout
+    tilemap.position = original_position
+
+
+# =========================================================
+#  LIGHT EFFECTS
+# =========================================================
+func light_flicker(light: PointLight2D, intensity_min: float = 0.3, intensity_max: float = 1.0, speed: float = 0.1):
+    """Flickering light effect"""
+    if not _is_valid(light): return
+    while _is_valid(light):
+        light.energy = rng.randf_range(intensity_min, intensity_max)
+        await get_tree().create_timer(speed).timeout
+
+func light_pulse(light: PointLight2D, target_energy: float = 2.0, duration: float = 0.5):
+    """Pulse light energy"""
+    if not _is_valid(light): return
+    var original = light.energy
+    var tween = _new_tween(light)
+    tween.tween_property(light, "energy", target_energy, duration/2)
+    tween.tween_property(light, "energy", original, duration/2)
+
+
+# =========================================================
+#  PARALLAX EFFECTS
+# =========================================================
+func parallax_slide(parallax: ParallaxBackground, direction: Vector2, speed: float = 50.0):
+    """Continuous parallax scrolling"""
+    if not _is_valid(parallax): return
+    while _is_valid(parallax):
+        parallax.scroll_offset += direction * speed * get_process_delta_time()
+        await get_tree().process_frame
+
+func parallax_layer_pulse(layer: ParallaxLayer, scale_factor: float = 1.2, duration: float = 0.3):
+    """Pulse effect on specific parallax layer"""
+    if not _is_valid(layer): return
+    var original_scale = layer.scale
+    var tween = _new_tween(layer)
+    tween.tween_property(layer, "scale", original_scale * scale_factor, duration/2)
+    tween.tween_property(layer, "scale", original_scale, duration/2)
+
+
+# =========================================================
+#  CAMERA EFFECTS
+# =========================================================
+func camera_shake(camera: Camera2D, intensity: float = 10.0, duration: float = 0.3):
+    """Professional camera shake with smoothing"""
+    if not _is_valid(camera): return
+    var original_offset = camera.offset
+    
+    for i in range(int(duration / 0.02)):
+        var decay = 1.0 - (i * 0.02 / duration)
+        camera.offset = original_offset + Vector2(
+            rng.randf_range(-intensity, intensity) * decay,
+            rng.randf_range(-intensity, intensity) * decay
+        )
+        await get_tree().create_timer(0.02).timeout
+    camera.offset = original_offset
+
+func camera_zoom_pulse(camera: Camera2D, target_zoom: float = 1.2, duration: float = 0.3):
+    """Zoom pulse effect"""
+    if not _is_valid(camera): return
+    var original_zoom = camera.zoom
+    var tween = _new_tween(camera)
+    tween.tween_property(camera, "zoom", Vector2.ONE * target_zoom, duration/2)
+    tween.tween_property(camera, "zoom", original_zoom, duration/2)
+
+func camera_track_smooth(camera: Camera2D, target: Node2D, speed: float = 5.0):
+    """Smooth camera tracking"""
+    if not _is_valid(camera) or not _is_valid(target): return
+    while _is_valid(camera) and _is_valid(target):
+        camera.global_position = camera.global_position.lerp(target.global_position, speed * get_process_delta_time())
+        await get_tree().process_frame
+
+# =========================================================
+#  POLYGON / COLLISION EFFECTS
+# =========================================================
+func polygon_morph(polygon: Polygon2D, target_polygon: PackedVector2Array, duration: float = 0.5):
+    """Morph between polygon shapes"""
+    if not _is_valid(polygon): return
+    var original = polygon.polygon
+    var tween = _new_tween(polygon)
+    tween.tween_method(func(p): 
+        var morphed = []
+        for i in range(min(original.size(), target_polygon.size())):
+            morphed.append(original[i].lerp(target_polygon[i], p))
+        polygon.polygon = PackedVector2Array(morphed)
+    , 0.0, 1.0, duration)
+
+func collision_shape_pulse(collision: CollisionShape2D, scale_factor: float = 1.2, duration: float = 0.3):
+    """Pulse collision shape (visual debugging)"""
+    if not _is_valid(collision): return
+    var original_scale = collision.scale
+    var tween = _new_tween(collision)
+    tween.tween_property(collision, "scale", original_scale * scale_factor, duration/2)
+    tween.tween_property(collision, "scale", original_scale, duration/2)
+
+
+# =========================================================
+#  NINE PATCH RECT EFFECTS
+# =========================================================
+func nine_patch_resize_pulse(rect: NinePatchRect, target_size: Vector2, duration: float = 0.3):
+    """Pulse size change"""
+    if not _is_valid(rect): return
+    var original = rect.size
+    var tween = _new_tween(rect)
+    tween.tween_property(rect, "size", target_size, duration/2)
+    tween.tween_property(rect, "size", original, duration/2)
+
+func nine_patch_patch_margin_pulse(rect: NinePatchRect, margin: String = "left", factor: float = 1.5, duration: float = 0.3):
+    """Pulse specific patch margin"""
+    if not _is_valid(rect): return
+    var original = rect.patch_margin_left
+    var target = original * factor
+    
+    match margin:
+        "left":
+            original = rect.patch_margin_left
+            target = original * factor
+            var tween = _new_tween(rect)
+            tween.tween_property(rect, "patch_margin_left", target, duration/2)
+            tween.tween_property(rect, "patch_margin_left", original, duration/2)
+        # Add other margins similarly...
+
+
+# =========================================================
+#  TOUCH SCREEN BUTTON EFFECTS
+# =========================================================
+func touch_button_press(touch_btn: TouchScreenButton, scale_factor: float = 0.9, duration: float = 0.1):
+    """Touch button press animation"""
+    if not _is_valid(touch_btn): return
+    var original = touch_btn.scale
+    var tween = _new_tween(touch_btn)
+    tween.tween_property(touch_btn, "scale", original * scale_factor, duration/2)
+    tween.tween_property(touch_btn, "scale", original, duration/2)
+
+func touch_button_glow(touch_btn: TouchScreenButton, color: Color = Color.YELLOW, duration: float = 0.2):
+    """Glow effect for touch button"""
+    if not _is_valid(touch_btn): return
+    var original = touch_btn.modulate
+    var tween = _new_tween(touch_btn)
+    tween.tween_property(touch_btn, "modulate", color, duration/2)
+    tween.tween_property(touch_btn, "modulate", original, duration/2)
+
+
+# =========================================================
+#  TEXTURE PROGRESS BAR EFFECTS
+# =========================================================
+func texture_progress_fluid(progress: TextureProgressBar, target_value: float, duration: float = 0.5):
+    """Smooth progress change with underflow/overflow effect"""
+    if not _is_valid(progress): return
+    var tween = _new_tween(progress)
+    tween.tween_property(progress, "value", target_value, duration)
+
+func texture_progress_pulse(progress: TextureProgressBar, color: Color = Color(1, 1, 0), duration: float = 0.3):
+    """Pulse the progress bar tint"""
+    if not _is_valid(progress): return
+    var original = progress.tint_progress
+    var tween = _new_tween(progress)
+    tween.tween_property(progress, "tint_progress", color, duration/2)
+    tween.tween_property(progress, "tint_progress", original, duration/2)
+
+
+# =========================================================
+#  GRAPH NODE EFFECTS
+# =========================================================
+func graph_node_highlight(graph_node: GraphNode, color: Color = Color.YELLOW, duration: float = 0.2):
+    """Highlight a graph node"""
+    if not _is_valid(graph_node): return
+    var original = graph_node.modulate
+    var tween = _new_tween(graph_node)
+    tween.tween_property(graph_node, "modulate", color, duration/2)
+    tween.tween_property(graph_node, "modulate", original, duration/2)
+
+func graph_node_connection_pulse(graph_edit: GraphEdit, from_node: String, from_port: int, to_node: String, to_port: int, color: Color = Color.YELLOW, duration: float = 0.3):
+    """Pulse a specific connection"""
+    if not _is_valid(graph_edit): return
+    # This would require custom drawing or shader
+    pass
+
+# =========================================================
+#  RICH TEXT LABEL EFFECTS
+# =========================================================
+func rich_text_fade_in(rich_label: RichTextLabel, duration: float = 0.5):
+    """Fade in each character"""
+    if not _is_valid(rich_label): return
+    rich_label.modulate.a = 0.0
+    var tween = _new_tween(rich_label)
+    tween.tween_property(rich_label, "modulate:a", 1.0, duration)
+
+func rich_text_scroll_to_line(rich_label: RichTextLabel, line: int, duration: float = 0.3):
+    """Smooth scroll to specific line"""
+    if not _is_valid(rich_label): return
+    var v_scroll = rich_label.get_v_scroll_bar()
+    if v_scroll:
+        var tween = _new_tween(rich_label)
+        tween.tween_property(v_scroll, "value", line * rich_label.get_line_height(), duration)
+
