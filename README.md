@@ -80,3 +80,5 @@ Example
       await get_tree().create_timer(0.5).timeout
       tweens.fade($Sprite, 0.0, 1.0, 0.5)
 
+
+Created with [GDSchool - Corso Programmazione Videogiochi](https://gdschool.education)
