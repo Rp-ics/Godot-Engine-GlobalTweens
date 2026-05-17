@@ -108,7 +108,31 @@
 extends Node
 
 var rng = RandomNumberGenerator.new()
+static var _beat_call_ids := {} 
+static var _beat_next_id := 0
+static var _pop_tweens := {}
 
+static var _float_tweens := {}
+static var _spin_active := {}
+static var _swing_tweens := {}
+
+static var _label_rainbow_active := {}
+static var _label_gradient_tweens := {}
+
+# Dictionary to track active squash-stretch tweens per node (anti-spam).
+static var _squash_tweens := {}
+
+# Dictionary to track active wobble tweens per node (anti-spam).
+static var _wobble_tweens := {}
+
+# Dictionary to track active rotate tweens per node (anti-spam).
+static var _rotate_tweens := {}
+
+# Dictionary to track active text_shake tweens per label (anti-spam).
+static var _text_shake_tweens := {}
+
+# === SCENE CHANGER === #
+static var _transition_active := false  # prevents overlapping scene transitions
 
 # =============================================================================
 #  INTERNAL HELPERS
@@ -140,20 +164,48 @@ func blink(node: CanvasItem, times: int = 3, speed: float = 0.1) -> Tween:
 		t.tween_property(node, "modulate:a", 1.0, speed)
 	return t
 
-# Tweens modulate alpha from `from` to `to`. Returns the PropertyTweener for awaiting.
+# Tweens modulate alpha from the **current** alpha to `to`.
+# (The `from` argument is kept for backward compatibility but no longer forces a jump.)
 func fade(node: CanvasItem, from: float, to: float, dur: float = 0.4) -> PropertyTweener:
 	if not _is_valid(node):
 		return null
-	node.modulate.a = from
+	# No forced modulate – start tween from whatever alpha the node already has
 	return _new_tween(node).tween_property(node, "modulate:a", to, dur)
-
-# Fades out to full transparency.
+	
 func hide_canvas(node: CanvasItem, dur: float = 0.3) -> PropertyTweener:
-	return fade(node, node.modulate.a, 0.0, dur)
+	return fade(node, node.modulate.a, 0.0, dur)    # "from" is ignored but kept for API compatibility
 
-# Fades in to full opacity.
 func show_canvas(node: CanvasItem, dur: float = 0.3) -> PropertyTweener:
 	return fade(node, node.modulate.a, 1.0, dur)
+
+# Looping / ping‑pong fade of the alpha channel.
+# - `to` is the alpha value the node reaches at the end of each “forward” fade.
+# - If `infinite` is true the loop runs forever (ignore `cycles`).
+# - Otherwise `cycles` defines how many complete fade‑in/fade‑out cycles to perform.
+#   Example: cycles=3 → fade to, back, to, back, to, back → 6 transitions total.
+# Returns the Tween that drives the whole sequence (you can await tween.finished if not infinite).
+func fade_loop(node: CanvasItem, to: float, dur: float = 0.4, infinite: bool = false, cycles: int = 1) -> Tween:
+	if not _is_valid(node):
+		return null
+
+	var start_alpha: float = node.modulate.a
+	var tween: Tween = _new_tween(node)
+
+	if infinite:
+		# Ping‑pong forever: from start_alpha -> to -> start_alpha ...
+		tween.tween_property(node, "modulate:a", to, dur)
+		tween.tween_property(node, "modulate:a", start_alpha, dur)
+		tween.set_loops(0)   # 0 = infinite loops
+	elif cycles > 1:
+		# Repeat the forward/backward pair 'cycles' times
+		tween.tween_property(node, "modulate:a", to, dur)
+		tween.tween_property(node, "modulate:a", start_alpha, dur)
+		tween.set_loops(cycles)
+	else:
+		# Single fade to `to`
+		tween.tween_property(node, "modulate:a", to, dur)
+
+	return tween
 
 # Flashes the node to a given color and returns to the original color.
 func color_flash(node: CanvasItem, color: Color = Color.RED, dur: float = 0.15) -> Tween:
@@ -175,13 +227,28 @@ func color_pulse(node: CanvasItem, color: Color = Color.YELLOW, dur: float = 0.4
 # =============================================================================
 
 # Scales up then back to original. Great for button feedback or hit reactions.
+# Aggiungi questa variabile statica in cima al file
 func pop_scale(node: Node2D, factor: float = 1.3, dur: float = 0.15) -> Tween:
 	if not _is_valid(node):
 		return null
+	
+	# Uccidi il vecchio Tween prima di partire
+	if _pop_tweens.has(node) and is_instance_valid(_pop_tweens[node]):
+		_pop_tweens[node].kill()
+	
 	var s = node.scale
 	var t = _new_tween(node)
+	_pop_tweens[node] = t  # registra il nuovo
+	
 	t.tween_property(node, "scale", s * factor, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	t.tween_property(node, "scale", s, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	
+	# Pulizia a fine animazione
+	t.finished.connect(func():
+		if _pop_tweens.get(node) == t:
+			_pop_tweens.erase(node)
+	)
+	
 	return t
 
 # Like pop_scale but with an elastic overshoot. Feels springy and alive.
@@ -206,28 +273,100 @@ func zoom_pop(node: Node2D, factor: float = 1.5, dur: float = 0.3) -> Tween:
 
 # Squashes and stretches the node along one axis. Volume is preserved (inverse on opposite axis).
 # axis: "x" or "y"
+# The node always returns to the *original* scale it had when the first call was made,
+# even if you spam the function.
 func squash_stretch(node: Node2D, axis: String = "y", factor: float = 1.3, dur: float = 0.15) -> Tween:
 	if not _is_valid(node):
 		return null
-	var s = node.scale
-	var stretch = Vector2(1.0 / factor, factor) if axis == "y" else Vector2(factor, 1.0 / factor)
-	var t = _new_tween(node)
-	t.tween_property(node, "scale", s * stretch, dur)
-	t.tween_property(node, "scale", s, dur)
-	return t
+
+	# If there's already an active squash-stretch tween for this node, kill it.
+	if _squash_tweens.has(node) and is_instance_valid(_squash_tweens[node]):
+		_squash_tweens[node].kill()
+
+	# Determine the original scale we must always return to.
+	# If no tween is stored, use the current scale as the original.
+	var original_scale: Vector2
+	if _squash_tweens.has(node):
+		# Retrieve stored original scale (we'll store it later, but we need to keep it across calls)
+		# Actually we can't store the scale inside the dict value easily without extra data.
+		# Let's store a small dictionary { "tween": tween, "original": scale }.
+		pass
+	# Better: store a dictionary with the original scale and the tween.
+
+	# store { "tween": Tween, "original": Vector2 }
+	var entry = _squash_tweens.get(node, {})
+	var original: Vector2 = entry.get("original", node.scale)
+
+	# If there was no entry (first call), save the current scale as the official original.
+	if not _squash_tweens.has(node):
+		original = node.scale
+
+	# Build the stretch vector (volume-preserving)
+	var stretch_vec = Vector2(1.0 / factor, factor) if axis == "y" else Vector2(factor, 1.0 / factor)
+
+	# Create the tween
+	var tween = _new_tween(node)
+
+	# Save the new tween and the original scale
+	_squash_tweens[node] = { "tween": tween, "original": original }
+
+	# Stretch to original * stretch_vec
+	tween.tween_property(node, "scale", original * stretch_vec, dur)
+	# Return to the exact original scale
+	tween.tween_property(node, "scale", original, dur)
+
+	# Cleanup after the tween finishes
+	tween.finished.connect(func():
+		if _squash_tweens.get(node, {}).get("tween") == tween:
+			_squash_tweens.erase(node)
+	)
+
+	return tween
 
 # Repeatedly squashes and stretches the node. Great for idle animations.
+# The node always returns to the *original* scale it had when the first call was made,
+# even if you spam the function.
 func wobble(node: Node2D, factor: float = 1.2, dur: float = 0.2, times: int = 3) -> Tween:
 	if not _is_valid(node):
 		return null
-	var s = node.scale
-	var t = _new_tween(node)
-	for i in range(times):
-		t.tween_property(node, "scale", s * Vector2(factor, 1.0 / factor), dur)
-		t.tween_property(node, "scale", s * Vector2(1.0 / factor, factor), dur)
-	t.tween_property(node, "scale", s, dur)
-	return t
 
+	# Kill any previous wobble tween on this node
+	if _wobble_tweens.has(node) and is_instance_valid(_wobble_tweens[node].get("tween")):
+		_wobble_tweens[node]["tween"].kill()
+
+	# Determine the original scale we must always return to
+	var entry = _wobble_tweens.get(node, {})
+	var original: Vector2 = entry.get("original", node.scale)
+
+	# First call: save the current scale as the official original
+	if not _wobble_tweens.has(node):
+		original = node.scale
+
+	# Build the two alternating stretch states
+	var stretch_a = original * Vector2(factor, 1.0 / factor)
+	var stretch_b = original * Vector2(1.0 / factor, factor)
+
+	# Create the tween
+	var tween = _new_tween(node)
+
+	# Save the new tween and the original scale
+	_wobble_tweens[node] = { "tween": tween, "original": original }
+
+	# Animate: alternate between stretch_a and stretch_b for 'times' cycles
+	for i in range(times):
+		tween.tween_property(node, "scale", stretch_a, dur)
+		tween.tween_property(node, "scale", stretch_b, dur)
+
+	# Always return to the exact original scale
+	tween.tween_property(node, "scale", original, dur)
+
+	# Cleanup after the tween finishes
+	tween.finished.connect(func():
+		if _wobble_tweens.get(node, {}).get("tween") == tween:
+			_wobble_tweens.erase(node)
+	)
+
+	return tween
 
 # =============================================================================
 #  MOVEMENT / ROTATION
@@ -239,12 +378,60 @@ func move_to(node: Node2D, target: Vector2, dur: float = 0.4) -> PropertyTweener
 		return null
 	return _new_tween(node).tween_property(node, "position", target, dur)
 
+
 # Rotates the node by `degrees` relative to its current rotation.
-func rotate_by(node: Node2D, degrees: float = 360.0, dur: float = 1.0) -> PropertyTweener:
+# - degrees: how many degrees to add to the current rotation each cycle.
+# - dur: duration of one full rotation cycle in seconds.
+# - loops: 0 = default (single rotation, no loop).
+#          positive N = repeat N times.
+#          -1 = infinite loop.
+#
+# If called again while a previous rotate is active, the old one is killed
+# and the new one starts from the *current* rotation (no jump).
+func rotate_by(node: Node2D, degrees: float = 360.0, dur: float = 1.0, loops: int = 0) -> Tween:
 	if not _is_valid(node):
 		return null
-	return _new_tween(node).tween_property(node, "rotation_degrees", node.rotation_degrees + degrees, dur)
 
+	# Kill any previous rotate tween on this node
+	if _rotate_tweens.has(node) and is_instance_valid(_rotate_tweens[node]):
+		_rotate_tweens[node].kill()
+
+	# Current rotation is our starting point
+	var start_rot: float = node.rotation_degrees
+	var target_rot: float = start_rot + degrees
+
+	var tween: Tween = _new_tween(node)
+	_rotate_tweens[node] = tween
+
+	# Single step: animate from current rotation to start_rot + degrees
+	tween.tween_property(node, "rotation_degrees", target_rot, dur)
+
+	if loops == -1:
+		# Infinite loop
+		tween.set_loops(0)   # 0 means infinite in Godot
+	elif loops > 1:
+		# Repeat the tween 'loops' times
+		# (set_loops counts total executions, so 1 is already the first one)
+		tween.set_loops(loops)
+
+	# Cleanup after the tween finishes (only if not infinite)
+	if loops != -1:
+		tween.finished.connect(func():
+			if _rotate_tweens.get(node) == tween:
+				_rotate_tweens.erase(node)
+		)
+	else:
+		# For infinite loops, we still want to clean up when the node is freed or a new call arrives.
+		# We can't easily hook into "a new call killed this tween", but the new call already calls kill(),
+		# and on kill the Tween stops. The entry will be overwritten by the new call anyway.
+		# Just remove the entry when the node exits the tree (optional safety).
+		if _is_valid(node):
+			node.tree_exiting.connect(func():
+				_rotate_tweens.erase(node)
+			, CONNECT_ONE_SHOT)
+
+	return tween
+	
 # Single bounce up and back down.
 func bounce(node: Node2D, height: float = 20.0, dur: float = 0.3) -> Tween:
 	if not _is_valid(node):
@@ -293,24 +480,53 @@ func shake_rot(node: Node2D, intensity: float = 10.0, dur: float = 0.3) -> void:
 #  LOOPS (fire and forget - runs until the node is freed)
 # =============================================================================
 
-# Oscillates the node up and down indefinitely.
-# amplitude: pixels to move from origin. speed: full cycles per second.
-# axis: "x" or "y"
-func float_loop(node: Node2D, amplitude: float = 10.0, speed: float = 1.0, axis: String = "y") -> void:
+# Oscillates the node up and down (or left/right).
+# - amplitude: pixels to move from origin.
+# - speed: full cycles per second.
+# - axis: "x" or "y".
+# - infinite: true = loop forever, false = run for 'cycles' repetitions.
+# - cycles: number of full back-and-forth cycles (only used when infinite=false).
+func float_loop(node: Node2D, amplitude: float = 10.0, speed: float = 1.0, axis: String = "y", infinite: bool = true, cycles: int = 1) -> void:
 	if not _is_valid(node):
 		return
+
+	# Kill any previous float tween on this node
+	if _float_tweens.has(node) and is_instance_valid(_float_tweens[node]):
+		_float_tweens[node].kill()
+
 	var period = 1.0 / speed
 	var origin = node.position
-	_float_loop_internal(node, origin, amplitude, period, axis)
 
-func _float_loop_internal(node: Node2D, origin: Vector2, amplitude: float, period: float, axis: String) -> void:
+	if infinite:
+		_float_loop_internal(node, origin, amplitude, period, axis, -1)   # -1 = infinite
+	else:
+		_float_loop_internal(node, origin, amplitude, period, axis, cycles)
+
+
+func _float_loop_internal(node: Node2D, origin: Vector2, amplitude: float, period: float, axis: String, remaining: int) -> void:
 	if not _is_valid(node):
+		_float_tweens.erase(node)
 		return
+
+	if remaining == 0:
+		# Finished all cycles – return to origin
+		var t_final = _new_tween(node)
+		t_final.tween_property(node, "position", origin, period * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_float_tweens[node] = t_final
+		t_final.finished.connect(func(): _float_tweens.erase(node))
+		return
+
+	if remaining > 0:
+		remaining -= 1
+
 	var target = origin + (Vector2.DOWN if axis == "y" else Vector2.RIGHT) * amplitude
 	var t = _new_tween(node)
+	_float_tweens[node] = t
 	t.tween_property(node, "position", target, period * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	t.tween_property(node, "position", origin, period * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.finished.connect(func(): _float_loop_internal(node, origin, amplitude, period, axis), CONNECT_ONE_SHOT)
+
+	t.finished.connect(func(): _float_loop_internal(node, origin, amplitude, period, axis, remaining), CONNECT_ONE_SHOT)
+	
 
 # Wanders the node randomly within an amplitude range. More organic than float_loop.
 func float_random(node: Node2D, amplitude: Vector2 = Vector2(10, 10), dur: float = 1.0) -> void:
@@ -330,36 +546,111 @@ func _float_random_internal(node: Node2D, origin: Vector2, amplitude: Vector2, d
 	t.finished.connect(func(): _float_random_internal(node, origin, amplitude, dur), CONNECT_ONE_SHOT)
 
 # Spins the node continuously. speed is degrees per second.
-# This runs on process_frame so it's framerate-aware.
-func spin(node: Node2D, speed: float = 180.0) -> void:
+# - infinite: true = spin forever, false = spin for 'cycles' full 360° rotations.
+# - cycles: number of full rotations (only used when infinite=false).
+# Calling this again while spinning will restart with the new settings.
+func spin(node: Node2D, speed: float = 180.0, infinite: bool = true, cycles: int = 1) -> void:
 	if not _is_valid(node):
 		return
-	while _is_valid(node):
-		node.rotation_degrees += speed * get_process_delta_time()
+
+	# Signal the old spin loop to stop (if any)
+	_spin_active[node] = false
+
+	if not infinite and cycles <= 0:
+		return
+
+	var my_id = rng.randi()   # unique ID for this spin session
+	_spin_active[node] = my_id
+
+	var total_degrees = 0.0
+	var target_degrees = cycles * 360.0 if not infinite else INF
+
+	while _is_valid(node) and _spin_active.get(node) == my_id:
+		var delta = speed * get_process_delta_time()
+		node.rotation_degrees += delta
+		total_degrees += abs(delta)
+
+		if not infinite and total_degrees >= target_degrees:
+			break
+
 		await get_tree().process_frame
 
-# Swings the node left and right around its origin rotation. Good for pendulums or hanging objects.
-func swing(node: Node2D, degrees: float = 15.0, dur: float = 0.5) -> void:
-	if not _is_valid(node):
-		return
-	_swing_internal(node, node.rotation_degrees, degrees, dur)
+	# Cleanup
+	if _spin_active.get(node) == my_id:
+		_spin_active.erase(node)
 
-func _swing_internal(node: Node2D, origin: float, degrees: float, dur: float) -> void:
+
+# Swings the node left and right around its origin rotation. Good for pendulums or hanging objects.
+# - degrees: max swing angle from origin.
+# - dur: duration of one full swing (left to right and back).
+# - infinite: true = swing forever, false = swing for 'cycles' full swings.
+# - cycles: number of full back-and-forth swings (only used when infinite=false).
+func swing(node: Node2D, degrees: float = 15.0, dur: float = 0.5, infinite: bool = true, cycles: int = 1) -> void:
 	if not _is_valid(node):
 		return
+
+	# Kill any previous swing tween on this node
+	if _swing_tweens.has(node) and is_instance_valid(_swing_tweens[node]):
+		_swing_tweens[node].kill()
+
+	var origin = node.rotation_degrees
+
+	if infinite:
+		_swing_internal(node, origin, degrees, dur, -1)
+	else:
+		_swing_internal(node, origin, degrees, dur, cycles)
+
+
+func _swing_internal(node: Node2D, origin: float, degrees: float, dur: float, remaining: int) -> void:
+	if not _is_valid(node):
+		_swing_tweens.erase(node)
+		return
+
+	if remaining == 0:
+		# Finished – return to origin rotation
+		var t_final = _new_tween(node)
+		t_final.tween_property(node, "rotation_degrees", origin, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_swing_tweens[node] = t_final
+		t_final.finished.connect(func(): _swing_tweens.erase(node))
+		return
+
+	if remaining > 0:
+		remaining -= 1
+
 	var t = _new_tween(node)
-	t.tween_property(node, "rotation_degrees", origin + degrees, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.tween_property(node, "rotation_degrees", origin - degrees, dur).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.finished.connect(func(): _swing_internal(node, origin, degrees, dur), CONNECT_ONE_SHOT)
+	_swing_tweens[node] = t
+	t.tween_property(node, "rotation_degrees", origin + degrees, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(node, "rotation_degrees", origin - degrees, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+	t.finished.connect(func(): _swing_internal(node, origin, degrees, dur, remaining), CONNECT_ONE_SHOT)
+
 
 # Pulses the node scale in sync with a BPM. Great for music-driven UI or rhythm games.
-func beat_pulse(node: Node2D, bpm: float = 120.0, factor: float = 1.2) -> void:
+func beat_pulse(node: Node2D, bpm: float = 120.0, factor: float = 1.2, repeats: int = 0) -> void:
 	if not _is_valid(node):
 		return
+
+	# Generate a new ID for this call
+	_beat_next_id += 1
+	var my_id = _beat_next_id
+	_beat_call_ids[node] = my_id
+
 	var interval = 60.0 / bpm
-	while _is_valid(node):
+	var count = 0
+	var max_repeats = repeats   # 0 = loop
+
+	# The loop continues only if:
+	# - the node is valid
+	# - the ID of this call is still active
+	# - the number of iterations has not been reached
+	while _is_valid(node) and _beat_call_ids.get(node) == my_id and (max_repeats == 0 or count < max_repeats):
 		pop_scale(node, factor, interval * 0.1)
 		await get_tree().create_timer(interval).timeout
+		count += 1
+
+	# Cleanup: Remove the ID only if it still belongs to us
+	if _beat_call_ids.get(node) == my_id:
+		_beat_call_ids.erase(node)
 
 
 # =============================================================================
@@ -579,9 +870,20 @@ func scene_fade_change(tree: SceneTree, scene_path: String, dur: float = 0.4) ->
 # Usage: await GlobalTweens.scene_slide_change(get_tree(), "res://scenes/Game.tscn", Vector2.LEFT)
 func scene_slide_change(tree: SceneTree, scene_path: String, dir: Vector2 = Vector2.LEFT, dur: float = 0.4) -> void:
 	var old_scene = tree.current_scene
-	var viewport_size = tree.root.size
+	if not old_scene:
+		push_error("scene_slide_change: no current scene to slide out")
+		return
 
-	var new_scene = load(scene_path).instantiate()
+	# Load the new scene resource
+	var new_scene_resource = load(scene_path)
+	if not new_scene_resource:
+		push_error("scene_slide_change: could not load scene at path: " + scene_path)
+		return
+
+	# Convert viewport_size (Vector2i) to Vector2 for float multiplication
+	var viewport_size: Vector2 = Vector2(tree.root.size)
+
+	var new_scene = new_scene_resource.instantiate()
 	tree.root.add_child(new_scene)
 	new_scene.position = -dir.normalized() * viewport_size
 
@@ -592,7 +894,184 @@ func scene_slide_change(tree: SceneTree, scene_path: String, dir: Vector2 = Vect
 	await t.finished
 	old_scene.queue_free()
 	tree.current_scene = new_scene
+	
 
+# Zooms the current scene out, changes scene, then zooms the new scene in.
+# - zoom_target: how far to zoom out (0.0 = fully shrunk, 1.0 = normal).
+func scene_zoom_change(tree: SceneTree, scene_path: String, zoom_target: float = 0.0, dur: float = 0.4) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var old_scene = tree.current_scene
+	if not old_scene:
+		tree.change_scene_to_file(scene_path)
+		_transition_active = false
+		return
+
+	# Zoom out the old scene
+	var t1 = old_scene.create_tween()
+	t1.tween_property(old_scene, "scale", Vector2.ONE * zoom_target, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	await t1.finished
+
+	# Change scene
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	var new_scene = tree.current_scene
+	if new_scene:
+		new_scene.scale = Vector2.ONE * zoom_target
+		var t2 = new_scene.create_tween()
+		t2.tween_property(new_scene, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		await t2.finished
+
+	_transition_active = false
+	
+# Glitch transition: rapid position jitter + color flashes on the old scene,
+# then cuts to the new scene with a settling animation.
+func scene_glitch_change(tree: SceneTree, scene_path: String, intensity: float = 20.0, dur: float = 0.3) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	# Flash a white overlay briefly
+	var canvas = CanvasLayer.new()
+	var rect = ColorRect.new()
+	rect.color = Color.WHITE
+	rect.size = tree.root.size
+	rect.modulate.a = 0.0
+	canvas.add_child(rect)
+	tree.root.add_child(canvas)
+
+	var old_scene = tree.current_scene
+	var origin = old_scene.position if old_scene else Vector2.ZERO
+
+	# Glitch the old scene (position jitter + white flash)
+	var steps = int(dur / 0.02)
+	for i in range(steps):
+		if not _is_valid(old_scene):
+			break
+
+		# Random position jitter
+		if i % 2 == 0:
+			old_scene.position = origin + Vector2(
+				rng.randf_range(-intensity, intensity),
+				rng.randf_range(-intensity, intensity)
+			)
+
+		# Flicker white overlay
+		rect.modulate.a = rng.randf_range(0.0, 0.8)
+
+		await tree.create_timer(0.02).timeout
+
+	# Restore position
+	if _is_valid(old_scene):
+		old_scene.position = origin
+
+	# Flash to white
+	var t_flash = rect.create_tween()
+	t_flash.tween_property(rect, "modulate:a", 1.0, 0.05)
+	await t_flash.finished
+
+	# Change scene
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	# Fade out the white overlay on the new scene
+	var t2 = rect.create_tween()
+	t2.tween_property(rect, "modulate:a", 0.0, dur * 0.5)
+	await t2.finished
+
+	canvas.queue_free()
+	_transition_active = false
+
+# Pixel dissolve transition: the old scene dissolves into blocks that fade away,
+# then the new scene assembles from blocks.
+# - block_size: size of each dissolving block in pixels.
+func scene_pixel_dissolve(tree: SceneTree, scene_path: String, block_size: int = 16, dur: float = 0.5) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var viewport_size = tree.root.size
+	var cols = ceil(viewport_size.x / block_size)
+	var rows = ceil(viewport_size.y / block_size)
+	var total_blocks = int(cols * rows)
+	var block_order = range(total_blocks)
+	block_order.shuffle()
+
+	var canvas = CanvasLayer.new()
+	tree.root.add_child(canvas)
+
+	var blocks: Array[ColorRect] = []
+
+	# Create blocks covering the screen
+	for i in total_blocks:
+		var block = ColorRect.new()
+		block.color = Color.BLACK
+		block.size = Vector2(block_size, block_size)
+		var x = (i % cols) * block_size
+		var y = int(i / cols) * block_size
+		block.position = Vector2(x, y)
+		block.modulate.a = 0.0
+		canvas.add_child(block)
+		blocks.append(block)
+
+	# Dissolve in (blocks appear in random order)
+	var delay_per_block = dur / total_blocks
+	for idx in block_order:
+		if not _is_valid(canvas):
+			break
+		blocks[idx].modulate.a = 1.0
+		await tree.create_timer(delay_per_block).timeout
+
+	# Change scene
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	# Dissolve out (blocks disappear in random order)
+	block_order.shuffle()
+	for idx in block_order:
+		if not _is_valid(canvas):
+			break
+		blocks[idx].modulate.a = 0.0
+		await tree.create_timer(delay_per_block * 0.5).timeout
+
+	canvas.queue_free()
+	_transition_active = false
+
+# Crossfade transition: old scene fades out while new scene fades in simultaneously.
+# Requires both scenes to be in the tree temporarily (uses a CanvasLayer overlay).
+func scene_crossfade(tree: SceneTree, scene_path: String, dur: float = 0.4) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	# Cover with black overlay
+	var canvas = CanvasLayer.new()
+	var rect = ColorRect.new()
+	rect.color = Color.BLACK
+	rect.size = tree.root.size
+	rect.modulate.a = 0.0
+	canvas.add_child(rect)
+	tree.root.add_child(canvas)
+
+	# Fade to black
+	var t1 = rect.create_tween()
+	t1.tween_property(rect, "modulate:a", 1.0, dur * 0.5)
+	await t1.finished
+
+	# Change scene
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	# Fade from black
+	var t2 = rect.create_tween()
+	t2.tween_property(rect, "modulate:a", 0.0, dur * 0.5)
+	await t2.finished
+
+	canvas.queue_free()
+	_transition_active = false
 
 # =============================================================================
 #  NODE LIFECYCLE
@@ -826,18 +1305,167 @@ func typewriter(label: Label, text: String, delay: float = 0.05) -> void:
 		label.text += text[i]
 		await get_tree().create_timer(delay).timeout
 
+
 # Horizontal position shake for labels. Good for "wrong answer" or damage feedback.
-func text_shake(label: Label, intensity: float = 2.0, duration: float = 0.2) -> Tween:
+# - intensity: max horizontal displacement in pixels.
+# - duration: length of one full shake burst (only used when infinite=false).
+# - infinite: true = shake forever, false = single burst.
+func text_shake(label: Label, intensity: float = 2.0, duration: float = 0.2, infinite: bool = false) -> Tween:
 	if not _is_valid(label):
 		return null
+
+	# Kill any previous text_shake tween on this label
+	if _text_shake_tweens.has(label) and is_instance_valid(_text_shake_tweens[label]):
+		_text_shake_tweens[label].kill()
+
 	var origin = label.position
 	var t = _new_tween(label)
-	var steps = 4
-	for i in range(steps):
-		t.tween_property(label, "position", origin + Vector2(rng.randf_range(-intensity, intensity), 0), duration / steps)
-	t.tween_property(label, "position", origin, duration / steps)
+	_text_shake_tweens[label] = t
+
+	if infinite:
+		# Infinite shake: keep adding random horizontal jitters forever
+		# Use a signal loop rather than set_loops because we need random positions each cycle
+		_shake_step(label, origin, intensity, duration / 4.0, -1, t)
+	else:
+		# Single burst: 4 random steps + return to origin
+		var steps = 4
+		for i in range(steps):
+			t.tween_property(label, "position", origin + Vector2(rng.randf_range(-intensity, intensity), 0), duration / steps)
+		t.tween_property(label, "position", origin, duration / steps)
+		t.finished.connect(func():
+			if _text_shake_tweens.get(label) == t:
+				_text_shake_tweens.erase(label)
+		)
+
 	return t
 
+
+# Helper: performs one shake step. If remaining != 0, schedules the next step.
+func _shake_step(label: Label, origin: Vector2, intensity: float, step_dur: float, remaining: int, master_tween: Tween) -> void:
+	if not _is_valid(label):
+		_text_shake_tweens.erase(label)
+		return
+
+	# Check if this specific shake session is still the active one
+	if _text_shake_tweens.get(label) != master_tween:
+		return
+
+	if remaining == 0:
+		# Finished – return to origin and clean up
+		var t_final = _new_tween(label)
+		_text_shake_tweens[label] = t_final
+		t_final.tween_property(label, "position", origin, step_dur)
+		t_final.finished.connect(func():
+			if _text_shake_tweens.get(label) == t_final:
+				_text_shake_tweens.erase(label)
+		)
+		return
+
+	var target = origin + Vector2(rng.randf_range(-intensity, intensity), 0)
+	var t_step = _new_tween(label)
+	t_step.tween_property(label, "position", target, step_dur)
+
+	var next_remaining = remaining - 1 if remaining > 0 else -1   # -1 stays -1 (infinite)
+
+	t_step.finished.connect(func():
+		_shake_step(label, origin, intensity, step_dur, next_remaining, master_tween)
+	, CONNECT_ONE_SHOT)
+
+# Cycles the label through rainbow colors.
+# - speed: how fast the hue shifts (higher = faster).
+# - saturation: color saturation (0.0 to 1.0).
+# - value: color brightness (0.0 to 1.0).
+# - infinite: true = rainbow forever, false = run for 'cycles' full hue rotations.
+# - cycles: number of full hue cycles (only used when infinite=false).
+func label_rainbow(label: Label, speed: float = 1.0, saturation: float = 0.8, value: float = 0.9, infinite: bool = true, cycles: int = 1) -> void:
+	if not _is_valid(label):
+		return
+
+	# Stop any previous rainbow on this label
+	_label_rainbow_active[label] = false
+
+	var my_id = rng.randi()
+	_label_rainbow_active[label] = my_id
+
+	var hue = 0.0
+	var total_hue_shift = 0.0
+	var target_hue_shift = cycles * 1.0 if not infinite else INF
+
+	while _is_valid(label) and _label_rainbow_active.get(label) == my_id:
+		hue += speed * get_process_delta_time()
+		total_hue_shift += speed * get_process_delta_time()
+
+		if not infinite and total_hue_shift >= target_hue_shift:
+			# Return to white (or original)
+			label.modulate = Color.WHITE
+			break
+
+		label.modulate = Color.from_hsv(fmod(hue, 1.0), saturation, value)
+		await get_tree().process_frame
+
+	# Cleanup
+	if _label_rainbow_active.get(label) == my_id:
+		_label_rainbow_active.erase(label)
+
+# Pulses the label's modulate color through a gradient sequence.
+# - gradient_type: "warm", "cool", "fire", "aurora", "sunset", "ocean".
+# - dur: duration of one full color cycle.
+# - infinite: true = pulse forever, false = stop after 'cycles' cycles.
+# - cycles: number of cycles (only used when infinite=false).
+func label_gradient_pulse(label: Label, gradient_type: String = "warm", dur: float = 1.0, infinite: bool = true, cycles: int = 1) -> Tween:
+	if not _is_valid(label):
+		push_warning("label_gradient_pulse: invalid node")
+		return null
+
+	# Kill previous
+	if _label_gradient_tweens.has(label) and is_instance_valid(_label_gradient_tweens[label]):
+		_label_gradient_tweens[label].kill()
+
+	# Define gradient color arrays
+	var gradients = {
+		"warm":   [Color.RED, Color.ORANGE, Color.YELLOW, Color.ORANGE],
+		"cool":   [Color.CYAN, Color.BLUE, Color.PURPLE, Color.BLUE],
+		"fire":   [Color.YELLOW, Color.ORANGE, Color.RED, Color.ORANGE],
+		"aurora": [Color.GREEN, Color.CYAN, Color.PURPLE, Color.CYAN],
+		"sunset": [Color.ORANGE, Color.DEEP_PINK, Color.PURPLE, Color.DEEP_PINK],
+		"ocean":  [Color.AQUA, Color.TEAL, Color.NAVY_BLUE, Color.TEAL],
+	}
+
+	var colors = gradients.get(gradient_type, gradients["warm"])
+	
+	# Guard against empty color array
+	if colors.is_empty():
+		push_error("label_gradient_pulse: no colors found for gradient_type: " + gradient_type)
+		return null
+
+	var step_dur = dur / float(colors.size())
+	var tween = _new_tween(label)   # ✅ FIX: "node" → "label"
+	if not tween:
+		push_error("label_gradient_pulse: could not create tween")
+		return null
+
+	_label_gradient_tweens[label] = tween
+
+	# Build the color sequence
+	for color in colors:
+		tween.tween_property(label, "modulate", color, step_dur)
+
+	# Restore original at the end
+	var original = label.modulate
+	tween.tween_property(label, "modulate", original, step_dur)
+
+	if infinite:
+		tween.set_loops(0)
+	else:
+		tween.set_loops(cycles)
+		tween.finished.connect(func():
+			if _label_gradient_tweens.get(label) == tween:
+				_label_gradient_tweens.erase(label)
+				if _is_valid(label):
+					label.modulate = original
+		)
+
+	return tween
 
 # =============================================================================
 #  PARTICLES / FX
@@ -866,26 +1494,58 @@ func burst_particles(node: Node2D, count: int = 8, speed: float = 100.0, duratio
 		t.parallel().tween_property(dot, "modulate:a", 0.0, duration)
 		t.finished.connect(dot.queue_free)
 
+# Dictionary to track active trail loops per node (anti-spam).
+static var _trail_active := {}
+
 # Leaves fading ghost copies of the node at regular intervals to create a motion trail.
 # The node must have a parent. Trail clones are duplicated and fade automatically.
+# - length: number of trail clones to create. 0 = infinite (runs until node is freed or a new trail is started).
+# - interval: seconds between each clone spawn.
+# - fade_duration: how long each clone takes to fade out and self-destruct.
 func trail(node: Node2D, length: int = 5, interval: float = 0.1, fade_duration: float = 0.3) -> void:
 	if not _is_valid(node):
 		return
+
 	var parent = node.get_parent()
 	if not parent:
 		return
-	for i in range(length):
-		if not _is_valid(node):
-			return
+
+	# Signal any previous trail on this node to stop
+	_trail_active[node] = false
+
+	var my_id = rng.randi()
+	_trail_active[node] = my_id
+
+	var count = 0
+
+	while _is_valid(node) and _trail_active.get(node) == my_id:
+		# If length > 0 and we've spawned enough clones, stop
+		if length > 0 and count >= length:
+			break
+
 		await get_tree().create_timer(interval).timeout
+
+		# Check again after the await (node might have been freed or trail stopped)
+		if not _is_valid(node) or _trail_active.get(node) != my_id:
+			break
+
 		var clone = node.duplicate()
 		clone.modulate.a = 0.7
 		parent.add_child(clone)
-		fade(clone, 0.7, 0.0, fade_duration)
-		await get_tree().create_timer(fade_duration).timeout
-		if _is_valid(clone):
-			clone.queue_free()
 
+		# Fade out and free the clone
+		var t = _new_tween(clone)
+		t.tween_property(clone, "modulate:a", 0.0, fade_duration)
+		t.finished.connect(func():
+			if _is_valid(clone):
+				clone.queue_free()
+		)
+
+		count += 1
+
+	# Cleanup
+	if _trail_active.get(node) == my_id:
+		_trail_active.erase(node)
 
 # =============================================================================
 #  CAMERA
