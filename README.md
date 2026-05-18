@@ -1,6 +1,6 @@
 Ecco il README.md aggiornato con tutte le novità della v2.0:
 
-```markdown
+
 # GlobalTweens  
 **Universal Tween Toolkit for Godot 4.x**  
 *One line. Infinite motion. Develop without overthinking.*
