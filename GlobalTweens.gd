@@ -131,6 +131,10 @@ static var _rotate_tweens := {}
 # Dictionary to track active text_shake tweens per label (anti-spam).
 static var _text_shake_tweens := {}
 
+# Dictionary to track active LineEdit flash tweens (anti-spam).
+static var _lineedit_flash_tweens := {}
+static var _lineedit_original_colors := {}   # stores original modulate per LineEdit
+
 # === SCENE CHANGER === #
 static var _transition_active := false  # prevents overlapping scene transitions
 
@@ -1188,17 +1192,49 @@ func button_enable(btn: Button, dur: float = 0.2) -> Tween:
 # =============================================================================
 
 # Flashes the LineEdit with a color. Use on validation errors or required field prompts.
+# Anti-spam protected: calling again instantly restores original color then starts new flash.
 func lineedit_attention(line: LineEdit, color: Color = Color.RED, dur: float = 0.15) -> Tween:
-	return color_flash(line, color, dur)
+	if not _is_valid(line):
+		return null
+
+	# Store the original modulate if we don't have it yet
+	if not _lineedit_original_colors.has(line):
+		_lineedit_original_colors[line] = line.modulate
+
+	var original = _lineedit_original_colors[line]
+
+	# Kill previous tween AND instantly restore original color
+	if _lineedit_flash_tweens.has(line) and is_instance_valid(_lineedit_flash_tweens[line]):
+		_lineedit_flash_tweens[line].kill()
+		line.modulate = original   # 🔥 Forza subito il ritorno al colore originale
+
+	var t = _new_tween(line)
+	if not t:
+		return null
+
+	_lineedit_flash_tweens[line] = t
+
+	t.tween_property(line, "modulate", color, dur * 0.5)
+	t.tween_property(line, "modulate", original, dur * 0.5)
+
+	t.finished.connect(func():
+		if _lineedit_flash_tweens.get(line) == t:
+			_lineedit_flash_tweens.erase(line)
+			if _is_valid(line):
+				line.modulate = original
+	)
+
+	return t
+
 
 # Softer color pop. Use for positive feedback (e.g. autocomplete accepted).
 func lineedit_pop(line: LineEdit, color: Color = Color.YELLOW, dur: float = 0.2) -> Tween:
-	return color_flash(line, color, dur)
+	return lineedit_attention(line, color, dur)
+
 
 # Alias for lineedit_attention. Kept for API clarity when slot is "error" context.
 func lineedit_error_feedback(line: LineEdit, color: Color = Color.RED, dur: float = 0.2) -> Tween:
-	return color_flash(line, color, dur)
-
+	return lineedit_attention(line, color, dur)
 
 # =============================================================================
 #  UI - SCROLL
@@ -1239,33 +1275,51 @@ func texture_progress_pulse(progress: TextureProgressBar, color: Color = Color.Y
 
 # Reveals or hides a Control node by animating its size.Y (vertical curtain effect).
 # open=true reveals the node (height goes from 0 to full). open=false hides it.
-func wipe_vertical(node: Control, open: bool = true, duration: float = 0.3) -> PropertyTweener:
+# Returns the Tween for awaiting.
+func wipe_vertical(node: Control, open: bool = true, duration: float = 0.3) -> Tween:
 	if not _is_valid(node):
 		return null
+
 	node.clip_contents = true
 	var full_size = node.size
-	if open:
-		var original_size = full_size
-		node.size = Vector2(original_size.x, 0)
-		return _new_tween(node).tween_property(node, "size", original_size, duration)
-	else:
-		return _new_tween(node).tween_property(node, "size", Vector2(full_size.x, 0), duration)
+	var tween = _new_tween(node)
+	if not tween:
+		return null
 
+	if open:
+		if node.has_method("show"):
+			node.show()
+		node.modulate.a = 1.0
+		node.size = Vector2(full_size.x, 0)
+		tween.tween_property(node, "size", full_size, duration)
+	else:
+		tween.tween_property(node, "size", Vector2(full_size.x, 0), duration)
+		tween.finished.connect(func():
+			if _is_valid(node) and node.has_method("hide"):
+				node.hide()
+		, CONNECT_ONE_SHOT)
+
+	return tween
 
 # =============================================================================
 #  UI - RADIAL / CHAIN UTILITIES
 # =============================================================================
 
-# Animates an array of buttons outward in a radial pattern from their origin.
-# Call with open=false to collapse back. Assumes buttons start at position Vector2.ZERO.
-func radial_menu_open(buttons: Array, radius: float = 100.0, duration: float = 0.3, open: bool = true) -> void:
+# Animates an array of buttons outward in a radial pattern from a custom origin.
+# - buttons: array of nodes to animate.
+# - radius: distance from origin when open.
+# - duration: animation duration per button.
+# - open: true = expand outward, false = collapse to origin.
+# - origin: center point of the radial menu (default: Vector2.ZERO).
+# - stagger: delay between each button (default: 0.04).
+func radial_menu_open(buttons: Array, radius: float = 100.0, duration: float = 0.3, open: bool = true, origin: Vector2 = Vector2.ZERO, stagger: float = 0.04) -> void:
 	for i in range(buttons.size()):
 		var btn = buttons[i]
 		if not _is_valid(btn):
 			continue
 		var angle = (i * TAU) / buttons.size()
-		var target = Vector2(cos(angle), sin(angle)) * radius if open else Vector2.ZERO
-		_new_tween(btn).tween_property(btn, "position", target, duration).set_delay(i * 0.04).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		var target = origin + Vector2(cos(angle), sin(angle)) * radius if open else origin
+		_new_tween(btn).tween_property(btn, "position", target, duration).set_delay(i * stagger).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # Runs a tween on each target/property/value/duration tuple in lock-step arrays.
 # All arrays must have the same length.
@@ -1305,6 +1359,43 @@ func typewriter(label: Label, text: String, delay: float = 0.05) -> void:
 		label.text += text[i]
 		await get_tree().create_timer(delay).timeout
 
+# =============================================================================
+#  UI - INPUT TYPEWRITER
+# =============================================================================
+
+# Types out text character by character into a LineEdit, like a typewriter effect.
+# - clear_first: if true, clears the field before typing (default).
+#                if false, appends to existing text.
+func lineedit_typewrite(line: LineEdit, text: String, delay: float = 0.05, clear_first: bool = true) -> void:
+	if not _is_valid(line):
+		return
+	
+	if clear_first:
+		line.text = ""
+	
+	for i in range(text.length()):
+		if not _is_valid(line):
+			return
+		line.text += text[i]
+		# Move cursor to the end while typing
+		line.caret_column = line.text.length()
+		await get_tree().create_timer(delay).timeout
+
+
+# Types out text character by character into the placeholder text of a LineEdit.
+# - clear_first: if true, clears the placeholder before typing (default).
+func lineedit_typewrite_placeholder(line: LineEdit, text: String, delay: float = 0.05, clear_first: bool = true) -> void:
+	if not _is_valid(line):
+		return
+	
+	if clear_first:
+		line.placeholder_text = ""
+	
+	for i in range(text.length()):
+		if not _is_valid(line):
+			return
+		line.placeholder_text += text[i]
+		await get_tree().create_timer(delay).timeout
 
 # Horizontal position shake for labels. Good for "wrong answer" or damage feedback.
 # - intensity: max horizontal displacement in pixels.
