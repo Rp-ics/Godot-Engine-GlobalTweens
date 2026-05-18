@@ -1723,3 +1723,105 @@ func light_pulse(light: PointLight2D, target_energy: float = 2.0, duration: floa
 	t.tween_property(light, "energy", target_energy, duration * 0.5)
 	t.tween_property(light, "energy", original, duration * 0.5)
 	return t
+
+
+
+# =============================================================================
+#  EXIT TWEENS (fade / slide / spin / pop out → free)
+# =============================================================================
+
+# Fades out the node and then frees it.
+func exit_fade_and_free(node: CanvasItem, dur: float = 0.3) -> Tween:
+	if not _is_valid(node):
+		return null
+	var tween = _new_tween(node)
+	tween.tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# Slides the node off-screen in a given direction and then frees it.
+func exit_slide_and_free(node: Node2D, direction: Vector2, distance: float = 300.0, dur: float = 0.4) -> Tween:
+	if not _is_valid(node):
+		return null
+	var target = node.position + direction.normalized() * distance
+	var tween = _new_tween(node)
+	tween.tween_property(node, "position", target, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# Spins the node while shrinking and fading it, then frees it. Spectacular exit.
+func exit_spin_and_free(node: Node2D, rotations: float = 2.0, dur: float = 0.4) -> Tween:
+	if not _is_valid(node):
+		return null
+	var tween = _new_tween(node)
+	tween.tween_property(node, "rotation_degrees", node.rotation_degrees + rotations * 360.0, dur)
+	tween.parallel().tween_property(node, "scale", Vector2.ZERO, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# Pops the node (quick scale up then implode) and frees it. Bubble-burst effect.
+func exit_pop_and_free(node: Node2D, dur: float = 0.3) -> Tween:
+	if not _is_valid(node):
+		return null
+	var original_scale = node.scale
+	var tween = _new_tween(node)
+	tween.tween_property(node, "scale", original_scale * 1.2, dur * 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(node, "scale", Vector2.ZERO, dur * 0.7).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# =============================================================================
+#  EPIC / DYNAMIC TWEENS
+# =============================================================================
+
+# Ground-slam effect: node flies to target with bounce and then shakes.
+# Optionally shakes the camera as well.
+func epic_ground_slam(node: Node2D, target_position: Vector2, dur: float = 0.5, shake_intensity: float = 10.0, camera: Camera2D = null) -> Tween:
+	if not _is_valid(node):
+		return null
+	var tween = _new_tween(node)
+	tween.tween_property(node, "position", target_position, dur).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(func():
+		shake(node, shake_intensity, 0.2)
+		if camera:
+			camera_shake(camera, shake_intensity * 0.5, 0.2)
+	)
+	return tween
+
+# Energy charge: node inflates and glows, then returns to normal.
+# Great for power-ups or epic moments.
+func epic_energy_charge(node: CanvasItem, scale_factor: float = 1.3, glow_color: Color = Color.YELLOW, dur: float = 0.6) -> Tween:
+	if not _is_valid(node):
+		return null
+	var original_scale = node.scale if node is Node2D else Vector2.ONE
+	var original_modulate = node.modulate
+	var tween = _new_tween(node)
+	tween.parallel().tween_property(node, "scale", original_scale * scale_factor, dur * 0.5).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(node, "modulate", glow_color, dur * 0.5)
+	tween.tween_property(node, "scale", original_scale, dur * 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.tween_property(node, "modulate", original_modulate, dur * 0.5)
+	return tween
+
+# Dynamic burst entry: node arrives from a direction with overshoot and a color flash.
+# Perfect for UI or enemy spawn with impact.
+func dynamic_burst_entry(node: Node2D, from_direction: Vector2, distance: float = 300.0, dur: float = 0.4, burst_color: Color = Color.WHITE) -> Tween:
+	if not _is_valid(node):
+		return null
+	var destination = node.position
+	node.position = destination + from_direction.normalized() * distance
+	node.modulate = burst_color
+	var tween = _new_tween(node)
+	tween.tween_property(node, "position", destination, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(node, "modulate", Color.WHITE, dur)
+	return tween
