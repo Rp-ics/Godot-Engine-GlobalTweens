@@ -325,4 +325,4 @@ Feel free to open issues or PRs on the [GitHub repository](https://github.com/Rp
 ---
 
 **One line. Infinite motion. Develop without overthinking. 🎬✨**
-```
+```print("Let's make it easy")```
