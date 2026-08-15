@@ -7,7 +7,7 @@ Bring your UI, characters, cameras, and effects to life with one-line calls — 
 
 ---
 
-## 🆕 What's New in v2.0
+## 🆕 What's New in v1.5
 
 - 🛡️ **Anti-spam protection** on 11 functions — rapid clicks won't break animations
 - 🔁 **Loop control** — every loop now has `infinite` (bool) + `cycles` (int) parameters
