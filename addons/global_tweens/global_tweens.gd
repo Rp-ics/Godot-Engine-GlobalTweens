@@ -5,6 +5,17 @@
 #  License: MIT - Free to use, modify, and distribute
 # =============================================================================
 #
+#  ARCHITECTURE (v2)
+#  ----------------------------------------------------------------------------
+#  This autoload bundles THREE ways to animate:
+#    1. Category catalog (recommended): GlobalTweens.play(node,
+#       "category.name", opts) - about 150 curated animations with automatic
+#       safety (snapshot/restore), anti-spam and restore-on-finish.
+#    2. Classic helpers below: the original 112+ functions, kept 100%
+#       backward compatible (same names, same signatures).
+#    3. Safety layer (GT_Safe): every helper tween is tracked automatically;
+#       play()/stop()/stop_all()/reset() kill everything and restore states.
+#
 #  SETUP (AutoLoad Singleton - recommended)
 #  ----------------------------------------------------------------------------
 #  Project Settings -> AutoLoad -> Add GlobalTweens.gd -> Enable as Singleton
@@ -22,6 +33,15 @@
 #      GlobalTweens.zoom_pop($Button, 1.3, 0.2)
 #      GlobalTweens.spin($Rotor, 180.0)
 #      GlobalTweens.scene_fade_change(get_tree(), "res://scenes/Game.tscn")
+#      GlobalTweens.scene_iris_change(get_tree(), "res://scenes/Game.tscn")
+#      GlobalTweens.camera_trauma($Camera2D, 0.8)
+#      GlobalTweens.camera_recoil($Camera2D, Vector2.UP, 15.0)
+#      GlobalTweens.rubber_band($Button, 1.4, 1.1)
+#      GlobalTweens.heartbeat($HealthIcon, 72.0, 1.25)
+#      GlobalTweens.death_spiral($Enemy)
+#      GlobalTweens.impact_freeze(0.08)
+#      GlobalTweens.cascade_fade_in([$A, $B, $C], 0.3, 0.1)
+#      GlobalTweens.morph_color_sequence($Portal, [Color.RED, Color.CYAN], 0.4, true)
 #
 #  SETUP (Local instance - if you prefer not using a singleton)
 #  ----------------------------------------------------------------------------
@@ -96,12 +116,23 @@
 #
 #  Camera
 #      camera_shake, camera_zoom_pulse
+#      camera_trauma, camera_lerp_to, camera_cinematic_zoom
+#      camera_recoil, camera_pan_and_return
 #
 #  Tilemap
 #      tilemap_fade_in, tilemap_shake
 #
 #  Light
 #      light_flicker, light_pulse
+#
+#  Scene Transitions (Extension Pack)
+#      scene_iris_change, scene_shatter_change, scene_color_splash_change
+#      scene_tv_off_change, scene_page_turn_change
+#
+#  General Tweens (Extension Pack)
+#      rubber_band, magnetic_snap, heartbeat, shockwave_scale, warp_entry
+#      death_spiral, slam_down, flicker_alive, pendulum_chain, depth_pop
+#      cascade_fade_in, impact_freeze, orbit_around, morph_color_sequence
 #
 # =============================================================================
 
@@ -131,6 +162,10 @@ static var _rotate_tweens := {}
 # Dictionary to track active text_shake tweens per label (anti-spam).
 static var _text_shake_tweens := {}
 
+# Dictionary to track active LineEdit flash tweens (anti-spam).
+static var _lineedit_flash_tweens := {}
+static var _lineedit_original_colors := {}   # stores original modulate per LineEdit
+
 # === SCENE CHANGER === #
 static var _transition_active := false  # prevents overlapping scene transitions
 
@@ -147,7 +182,12 @@ func _is_valid(n) -> bool:
 func _new_tween(target: Node) -> Tween:
 	if not _is_valid(target):
 		return null
-	return target.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var tween: Tween = target.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	# Safety layer: snapshot the node state and track every helper tween so
+	# stop()/stop_all()/reset() can always kill it and restore the snapshot.
+	GT_Safe.save_state(target)
+	GT_Safe.track_tween(target, tween)
+	return tween
 
 
 # =============================================================================
@@ -565,7 +605,7 @@ func spin(node: Node2D, speed: float = 180.0, infinite: bool = true, cycles: int
 	var total_degrees = 0.0
 	var target_degrees = cycles * 360.0 if not infinite else INF
 
-	while _is_valid(node) and _spin_active.get(node) == my_id:
+	while _is_valid(node) and _spin_active.get(node) == my_id and not GT_Safe.is_paused(node):
 		var delta = speed * get_process_delta_time()
 		node.rotation_degrees += delta
 		total_degrees += abs(delta)
@@ -577,6 +617,8 @@ func spin(node: Node2D, speed: float = 180.0, infinite: bool = true, cycles: int
 
 	# Cleanup
 	if _spin_active.get(node) == my_id:
+		_spin_active.erase(node)
+	elif not _is_valid(node):
 		_spin_active.erase(node)
 
 
@@ -643,7 +685,7 @@ func beat_pulse(node: Node2D, bpm: float = 120.0, factor: float = 1.2, repeats: 
 	# - the node is valid
 	# - the ID of this call is still active
 	# - the number of iterations has not been reached
-	while _is_valid(node) and _beat_call_ids.get(node) == my_id and (max_repeats == 0 or count < max_repeats):
+	while _is_valid(node) and _beat_call_ids.get(node) == my_id and not GT_Safe.is_paused(node) and (max_repeats == 0 or count < max_repeats):
 		pop_scale(node, factor, interval * 0.1)
 		await get_tree().create_timer(interval).timeout
 		count += 1
@@ -1188,17 +1230,49 @@ func button_enable(btn: Button, dur: float = 0.2) -> Tween:
 # =============================================================================
 
 # Flashes the LineEdit with a color. Use on validation errors or required field prompts.
+# Anti-spam protected: calling again instantly restores original color then starts new flash.
 func lineedit_attention(line: LineEdit, color: Color = Color.RED, dur: float = 0.15) -> Tween:
-	return color_flash(line, color, dur)
+	if not _is_valid(line):
+		return null
+
+	# Store the original modulate if we don't have it yet
+	if not _lineedit_original_colors.has(line):
+		_lineedit_original_colors[line] = line.modulate
+
+	var original = _lineedit_original_colors[line]
+
+	# Kill previous tween AND instantly restore original color
+	if _lineedit_flash_tweens.has(line) and is_instance_valid(_lineedit_flash_tweens[line]):
+		_lineedit_flash_tweens[line].kill()
+		line.modulate = original   # 🔥 Forza subito il ritorno al colore originale
+
+	var t = _new_tween(line)
+	if not t:
+		return null
+
+	_lineedit_flash_tweens[line] = t
+
+	t.tween_property(line, "modulate", color, dur * 0.5)
+	t.tween_property(line, "modulate", original, dur * 0.5)
+
+	t.finished.connect(func():
+		if _lineedit_flash_tweens.get(line) == t:
+			_lineedit_flash_tweens.erase(line)
+			if _is_valid(line):
+				line.modulate = original
+	)
+
+	return t
+
 
 # Softer color pop. Use for positive feedback (e.g. autocomplete accepted).
 func lineedit_pop(line: LineEdit, color: Color = Color.YELLOW, dur: float = 0.2) -> Tween:
-	return color_flash(line, color, dur)
+	return lineedit_attention(line, color, dur)
+
 
 # Alias for lineedit_attention. Kept for API clarity when slot is "error" context.
 func lineedit_error_feedback(line: LineEdit, color: Color = Color.RED, dur: float = 0.2) -> Tween:
-	return color_flash(line, color, dur)
-
+	return lineedit_attention(line, color, dur)
 
 # =============================================================================
 #  UI - SCROLL
@@ -1239,33 +1313,51 @@ func texture_progress_pulse(progress: TextureProgressBar, color: Color = Color.Y
 
 # Reveals or hides a Control node by animating its size.Y (vertical curtain effect).
 # open=true reveals the node (height goes from 0 to full). open=false hides it.
-func wipe_vertical(node: Control, open: bool = true, duration: float = 0.3) -> PropertyTweener:
+# Returns the Tween for awaiting.
+func wipe_vertical(node: Control, open: bool = true, duration: float = 0.3) -> Tween:
 	if not _is_valid(node):
 		return null
+
 	node.clip_contents = true
 	var full_size = node.size
-	if open:
-		var original_size = full_size
-		node.size = Vector2(original_size.x, 0)
-		return _new_tween(node).tween_property(node, "size", original_size, duration)
-	else:
-		return _new_tween(node).tween_property(node, "size", Vector2(full_size.x, 0), duration)
+	var tween = _new_tween(node)
+	if not tween:
+		return null
 
+	if open:
+		if node.has_method("show"):
+			node.show()
+		node.modulate.a = 1.0
+		node.size = Vector2(full_size.x, 0)
+		tween.tween_property(node, "size", full_size, duration)
+	else:
+		tween.tween_property(node, "size", Vector2(full_size.x, 0), duration)
+		tween.finished.connect(func():
+			if _is_valid(node) and node.has_method("hide"):
+				node.hide()
+		, CONNECT_ONE_SHOT)
+
+	return tween
 
 # =============================================================================
 #  UI - RADIAL / CHAIN UTILITIES
 # =============================================================================
 
-# Animates an array of buttons outward in a radial pattern from their origin.
-# Call with open=false to collapse back. Assumes buttons start at position Vector2.ZERO.
-func radial_menu_open(buttons: Array, radius: float = 100.0, duration: float = 0.3, open: bool = true) -> void:
+# Animates an array of buttons outward in a radial pattern from a custom origin.
+# - buttons: array of nodes to animate.
+# - radius: distance from origin when open.
+# - duration: animation duration per button.
+# - open: true = expand outward, false = collapse to origin.
+# - origin: center point of the radial menu (default: Vector2.ZERO).
+# - stagger: delay between each button (default: 0.04).
+func radial_menu_open(buttons: Array, radius: float = 100.0, duration: float = 0.3, open: bool = true, origin: Vector2 = Vector2.ZERO, stagger: float = 0.04) -> void:
 	for i in range(buttons.size()):
 		var btn = buttons[i]
 		if not _is_valid(btn):
 			continue
 		var angle = (i * TAU) / buttons.size()
-		var target = Vector2(cos(angle), sin(angle)) * radius if open else Vector2.ZERO
-		_new_tween(btn).tween_property(btn, "position", target, duration).set_delay(i * 0.04).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		var target = origin + Vector2(cos(angle), sin(angle)) * radius if open else origin
+		_new_tween(btn).tween_property(btn, "position", target, duration).set_delay(i * stagger).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # Runs a tween on each target/property/value/duration tuple in lock-step arrays.
 # All arrays must have the same length.
@@ -1305,6 +1397,43 @@ func typewriter(label: Label, text: String, delay: float = 0.05) -> void:
 		label.text += text[i]
 		await get_tree().create_timer(delay).timeout
 
+# =============================================================================
+#  UI - INPUT TYPEWRITER
+# =============================================================================
+
+# Types out text character by character into a LineEdit, like a typewriter effect.
+# - clear_first: if true, clears the field before typing (default).
+#                if false, appends to existing text.
+func lineedit_typewrite(line: LineEdit, text: String, delay: float = 0.05, clear_first: bool = true) -> void:
+	if not _is_valid(line):
+		return
+	
+	if clear_first:
+		line.text = ""
+	
+	for i in range(text.length()):
+		if not _is_valid(line):
+			return
+		line.text += text[i]
+		# Move cursor to the end while typing
+		line.caret_column = line.text.length()
+		await get_tree().create_timer(delay).timeout
+
+
+# Types out text character by character into the placeholder text of a LineEdit.
+# - clear_first: if true, clears the placeholder before typing (default).
+func lineedit_typewrite_placeholder(line: LineEdit, text: String, delay: float = 0.05, clear_first: bool = true) -> void:
+	if not _is_valid(line):
+		return
+	
+	if clear_first:
+		line.placeholder_text = ""
+	
+	for i in range(text.length()):
+		if not _is_valid(line):
+			return
+		line.placeholder_text += text[i]
+		await get_tree().create_timer(delay).timeout
 
 # Horizontal position shake for labels. Good for "wrong answer" or damage feedback.
 # - intensity: max horizontal displacement in pixels.
@@ -1391,7 +1520,7 @@ func label_rainbow(label: Label, speed: float = 1.0, saturation: float = 0.8, va
 	var total_hue_shift = 0.0
 	var target_hue_shift = cycles * 1.0 if not infinite else INF
 
-	while _is_valid(label) and _label_rainbow_active.get(label) == my_id:
+	while _is_valid(label) and _label_rainbow_active.get(label) == my_id and not GT_Safe.is_paused(label):
 		hue += speed * get_process_delta_time()
 		total_hue_shift += speed * get_process_delta_time()
 
@@ -1518,7 +1647,7 @@ func trail(node: Node2D, length: int = 5, interval: float = 0.1, fade_duration: 
 
 	var count = 0
 
-	while _is_valid(node) and _trail_active.get(node) == my_id:
+	while _is_valid(node) and _trail_active.get(node) == my_id and not GT_Safe.is_paused(node):
 		# If length > 0 and we've spawned enough clones, stop
 		if length > 0 and count >= length:
 			break
@@ -1545,6 +1674,8 @@ func trail(node: Node2D, length: int = 5, interval: float = 0.1, fade_duration: 
 
 	# Cleanup
 	if _trail_active.get(node) == my_id:
+		_trail_active.erase(node)
+	elif not _is_valid(node):
 		_trail_active.erase(node)
 
 # =============================================================================
@@ -1619,7 +1750,7 @@ func tilemap_shake(tilemap: TileMap, intensity: float = 5.0, duration: float = 0
 func light_flicker(light: PointLight2D, intensity_min: float = 0.3, intensity_max: float = 1.0, speed: float = 0.1) -> void:
 	if not _is_valid(light):
 		return
-	while _is_valid(light):
+	while _is_valid(light) and not GT_Safe.is_paused(light):
 		light.energy = rng.randf_range(intensity_min, intensity_max)
 		await get_tree().create_timer(speed).timeout
 
@@ -1632,3 +1763,961 @@ func light_pulse(light: PointLight2D, target_energy: float = 2.0, duration: floa
 	t.tween_property(light, "energy", target_energy, duration * 0.5)
 	t.tween_property(light, "energy", original, duration * 0.5)
 	return t
+
+
+
+# =============================================================================
+#  EXIT TWEENS (fade / slide / spin / pop out → free)
+# =============================================================================
+
+# Fades out the node and then frees it.
+func exit_fade_and_free(node: CanvasItem, dur: float = 0.3) -> Tween:
+	if not _is_valid(node):
+		return null
+	var tween = _new_tween(node)
+	tween.tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# Slides the node off-screen in a given direction and then frees it.
+func exit_slide_and_free(node: Node2D, direction: Vector2, distance: float = 300.0, dur: float = 0.4) -> Tween:
+	if not _is_valid(node):
+		return null
+	var target = node.position + direction.normalized() * distance
+	var tween = _new_tween(node)
+	tween.tween_property(node, "position", target, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# Spins the node while shrinking and fading it, then frees it. Spectacular exit.
+func exit_spin_and_free(node: Node2D, rotations: float = 2.0, dur: float = 0.4) -> Tween:
+	if not _is_valid(node):
+		return null
+	var tween = _new_tween(node)
+	tween.tween_property(node, "rotation_degrees", node.rotation_degrees + rotations * 360.0, dur)
+	tween.parallel().tween_property(node, "scale", Vector2.ZERO, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# Pops the node (quick scale up then implode) and frees it. Bubble-burst effect.
+func exit_pop_and_free(node: Node2D, dur: float = 0.3) -> Tween:
+	if not _is_valid(node):
+		return null
+	var original_scale = node.scale
+	var tween = _new_tween(node)
+	tween.tween_property(node, "scale", original_scale * 1.2, dur * 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(node, "scale", Vector2.ZERO, dur * 0.7).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(node, "modulate:a", 0.0, dur)
+	tween.finished.connect(func(): 
+		if _is_valid(node): node.queue_free()
+	)
+	return tween
+
+# =============================================================================
+#  EPIC / DYNAMIC TWEENS
+# =============================================================================
+
+# Ground-slam effect: node flies to target with bounce and then shakes.
+# Optionally shakes the camera as well.
+func epic_ground_slam(node: Node2D, target_position: Vector2, dur: float = 0.5, shake_intensity: float = 10.0, camera: Camera2D = null) -> Tween:
+	if not _is_valid(node):
+		return null
+	var tween = _new_tween(node)
+	tween.tween_property(node, "position", target_position, dur).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(func():
+		shake(node, shake_intensity, 0.2)
+		if camera:
+			camera_shake(camera, shake_intensity * 0.5, 0.2)
+	)
+	return tween
+
+# Energy charge: node inflates and glows, then returns to normal.
+# Great for power-ups or epic moments.
+func epic_energy_charge(node: CanvasItem, scale_factor: float = 1.3, glow_color: Color = Color.YELLOW, dur: float = 0.6) -> Tween:
+	if not _is_valid(node):
+		return null
+	var original_scale = node.scale if node is Node2D else Vector2.ONE
+	var original_modulate = node.modulate
+	var tween = _new_tween(node)
+	tween.parallel().tween_property(node, "scale", original_scale * scale_factor, dur * 0.5).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(node, "modulate", glow_color, dur * 0.5)
+	tween.tween_property(node, "scale", original_scale, dur * 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tween.tween_property(node, "modulate", original_modulate, dur * 0.5)
+	return tween
+
+# Dynamic burst entry: node arrives from a direction with overshoot and a color flash.
+# Perfect for UI or enemy spawn with impact.
+func dynamic_burst_entry(node: Node2D, from_direction: Vector2, distance: float = 300.0, dur: float = 0.4, burst_color: Color = Color.WHITE) -> Tween:
+	if not _is_valid(node):
+		return null
+	var destination = node.position
+	node.position = destination + from_direction.normalized() * distance
+	node.modulate = burst_color
+	var tween = _new_tween(node)
+	tween.tween_property(node, "position", destination, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(node, "modulate", Color.WHITE, dur)
+	return tween
+
+
+# =============================================================================
+#  EXTENSION PACK — GlobalTweens_Additions
+#  New Scene Transitions, Camera2D Tweens, General Tweens
+#  See function index above or the additions header for full list.
+# =============================================================================
+
+#  SCENE TRANSITIONS — 5 NEW
+# =============================================================================
+
+# ─── IRIS WIPE ───────────────────────────────────────────────────────────────
+# A black circle shrinks to nothing revealing the old scene, then the new
+# scene is revealed by the same circle growing from nothing.
+# Requires: a full-screen TextureRect or ColorRect with a CircleMask shader.
+# This version uses a ColorRect that scales down to a point — no shader needed.
+# It fakes the iris with a large Circle polygon node.
+#
+# Usage: await GlobalTweens.scene_iris_change(get_tree(), "res://Game.tscn")
+func scene_iris_change(tree: SceneTree, scene_path: String, dur: float = 0.5, color: Color = Color.BLACK) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var viewport_size = Vector2(tree.root.size)
+	var max_radius = viewport_size.length()
+
+	# Build a CanvasLayer with a Polygon2D circle
+	var canvas = CanvasLayer.new()
+	canvas.layer = 100
+	tree.root.add_child(canvas)
+
+	var poly = Polygon2D.new()
+	poly.color = color
+	canvas.add_child(poly)
+
+	var _build_circle = func(radius: float) -> PackedVector2Array:
+		var points = PackedVector2Array()
+		var segments = 48
+		for i in range(segments):
+			var angle = (float(i) / segments) * TAU
+			points.append(Vector2(cos(angle), sin(angle)) * radius)
+		return points
+
+	# Center on screen
+	poly.position = viewport_size * 0.5
+	poly.polygon = _build_circle.call(max_radius)
+
+	# Shrink circle to zero (iris close on old scene)
+	var steps_out = 30
+	for i in range(steps_out + 1):
+		if not _is_valid(poly):
+			break
+		var t = 1.0 - (float(i) / steps_out)
+		var radius = max_radius * t
+		poly.polygon = _build_circle.call(max(radius, 0.5))
+		await tree.process_frame
+
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	# Grow circle from zero (iris open on new scene)
+	for i in range(steps_out + 1):
+		if not _is_valid(poly):
+			break
+		var t = float(i) / steps_out
+		var radius = max_radius * t
+		poly.polygon = _build_circle.call(max(radius, 0.5))
+		await tree.process_frame
+
+	canvas.queue_free()
+	_transition_active = false
+
+
+# ─── SHATTER ─────────────────────────────────────────────────────────────────
+# Splits the screen into a grid of ColorRects that fly outward like glass shards,
+# then the new scene assembles from them snapping back.
+#
+# Usage: await GlobalTweens.scene_shatter_change(get_tree(), "res://Game.tscn")
+func scene_shatter_change(tree: SceneTree, scene_path: String, cols: int = 6, rows: int = 4, dur: float = 0.5) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var viewport_size = Vector2(tree.root.size)
+	var cell_w = viewport_size.x / cols
+	var cell_h = viewport_size.y / rows
+
+	var canvas = CanvasLayer.new()
+	canvas.layer = 100
+	tree.root.add_child(canvas)
+
+	# Take a visual "screenshot" using a dark overlay on each cell
+	var shards: Array = []
+	for c in range(cols):
+		for r in range(rows):
+			var shard = ColorRect.new()
+			shard.size = Vector2(cell_w, cell_h)
+			shard.position = Vector2(c * cell_w, r * cell_h)
+			shard.color = Color(rng.randf_range(0.0, 0.1), 0.0, rng.randf_range(0.0, 0.15))
+			canvas.add_child(shard)
+			shards.append(shard)
+
+	# Shatter outward
+	var center = viewport_size * 0.5
+	for shard in shards:
+		if not _is_valid(shard):
+			continue
+		var shard_center = shard.position + shard.size * 0.5
+		var direction = (shard_center - center).normalized()
+		var fly_dist = rng.randf_range(300.0, 600.0)
+		var target = shard.position + direction * fly_dist
+		var t = shard.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		t.parallel().tween_property(shard, "position", target, dur)
+		t.parallel().tween_property(shard, "rotation", rng.randf_range(-1.5, 1.5), dur)
+		t.parallel().tween_property(shard, "modulate:a", 0.0, dur)
+
+	await tree.create_timer(dur).timeout
+
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	canvas.queue_free()
+	_transition_active = false
+
+
+# ─── COLOR SPLASH ────────────────────────────────────────────────────────────
+# A colored circle explodes from the center covering the screen, then contracts
+# to reveal the new scene. Great for level-clear or dramatic reveals.
+#
+# Usage: await GlobalTweens.scene_color_splash_change(get_tree(), "res://Game.tscn", Color.CRIMSON)
+func scene_color_splash_change(tree: SceneTree, scene_path: String, splash_color: Color = Color.BLACK, dur: float = 0.4) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var viewport_size = Vector2(tree.root.size)
+	var max_radius = viewport_size.length()
+
+	var canvas = CanvasLayer.new()
+	canvas.layer = 100
+	tree.root.add_child(canvas)
+
+	var poly = Polygon2D.new()
+	poly.color = splash_color
+	poly.position = viewport_size * 0.5
+	canvas.add_child(poly)
+
+	var segments = 48
+	var _build_poly = func(r: float) -> PackedVector2Array:
+		var pts = PackedVector2Array()
+		for i in range(segments):
+			var a = (float(i) / segments) * TAU
+			pts.append(Vector2(cos(a), sin(a)) * r)
+		return pts
+
+	poly.polygon = _build_poly.call(0.0)
+
+	# Grow to cover the screen
+	var steps = 40
+	for i in range(steps + 1):
+		if not _is_valid(poly):
+			break
+		var r = max_radius * ease(float(i) / steps, 0.3)  # fast start
+		poly.polygon = _build_poly.call(r)
+		await tree.process_frame
+
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	# Shrink to reveal the new scene
+	for i in range(steps + 1):
+		if not _is_valid(poly):
+			break
+		var r = max_radius * (1.0 - ease(float(i) / steps, 0.3))
+		poly.polygon = _build_poly.call(r)
+		await tree.process_frame
+
+	canvas.queue_free()
+	_transition_active = false
+
+
+# ─── TV OFF ───────────────────────────────────────────────────────────────────
+# The old scene collapses vertically like a CRT being switched off (horizontal
+# scanline vanishes to a point), then the new scene expands from a line.
+#
+# Usage: await GlobalTweens.scene_tv_off_change(get_tree(), "res://Game.tscn")
+func scene_tv_off_change(tree: SceneTree, scene_path: String, dur: float = 0.35) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var viewport_size = Vector2(tree.root.size)
+
+	var canvas = CanvasLayer.new()
+	canvas.layer = 100
+	tree.root.add_child(canvas)
+
+	# Black overlay that covers the screen
+	var bg = ColorRect.new()
+	bg.color = Color.BLACK
+	bg.size = viewport_size
+	bg.modulate.a = 0.0
+	canvas.add_child(bg)
+
+	# The white scanline
+	var scanline = ColorRect.new()
+	scanline.color = Color.WHITE
+	scanline.size = Vector2(viewport_size.x, 4.0)
+	scanline.position = Vector2(0.0, viewport_size.y * 0.5 - 2.0)
+	scanline.modulate.a = 0.0
+	canvas.add_child(scanline)
+
+	# Phase 1: old scene compresses into scanline
+	var old_scene = tree.current_scene
+	if _is_valid(old_scene):
+		var t_compress = old_scene.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		t_compress.parallel().tween_property(old_scene, "scale", Vector2(1.0, 0.0), dur * 0.5)
+		t_compress.parallel().tween_property(bg, "modulate:a", 1.0, dur * 0.5)
+		t_compress.parallel().tween_property(scanline, "modulate:a", 1.0, dur * 0.2)
+		await t_compress.finished
+
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	var new_scene = tree.current_scene
+	if _is_valid(new_scene):
+		new_scene.scale = Vector2(1.0, 0.0)
+
+	# Phase 2: new scene expands from scanline
+	var t_expand = tree.root.create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if _is_valid(new_scene):
+		t_expand.parallel().tween_property(new_scene, "scale", Vector2.ONE, dur * 0.6)
+	t_expand.parallel().tween_property(bg, "modulate:a", 0.0, dur * 0.4)
+	t_expand.parallel().tween_property(scanline, "modulate:a", 0.0, dur * 0.2)
+	await t_expand.finished
+
+	canvas.queue_free()
+	_transition_active = false
+
+
+# ─── PAGE TURN ────────────────────────────────────────────────────────────────
+# Simulates a page flip: the old scene skews and shrinks to the right while a
+# white flash imitates the paper glare, then the new scene unfolds from the left.
+#
+# Usage: await GlobalTweens.scene_page_turn_change(get_tree(), "res://Game.tscn")
+func scene_page_turn_change(tree: SceneTree, scene_path: String, dur: float = 0.45) -> void:
+	if _transition_active:
+		return
+	_transition_active = true
+
+	var viewport_size = Vector2(tree.root.size)
+
+	var canvas = CanvasLayer.new()
+	canvas.layer = 100
+	tree.root.add_child(canvas)
+
+	var flash = ColorRect.new()
+	flash.color = Color.WHITE
+	flash.size = viewport_size
+	flash.modulate.a = 0.0
+	canvas.add_child(flash)
+
+	var shadow = ColorRect.new()
+	shadow.color = Color(0.0, 0.0, 0.0, 0.0)
+	shadow.size = Vector2(viewport_size.x * 0.4, viewport_size.y)
+	shadow.position = Vector2(viewport_size.x * 0.6, 0.0)
+	canvas.add_child(shadow)
+
+	var old_scene = tree.current_scene
+
+	# Phase 1: fold the old scene away
+	if _is_valid(old_scene):
+		var t1 = old_scene.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		t1.parallel().tween_property(old_scene, "scale", Vector2(0.0, 1.0), dur * 0.4)
+		t1.parallel().tween_property(old_scene, "position", Vector2(viewport_size.x * 0.5, 0.0), dur * 0.4)
+		t1.parallel().tween_property(flash, "modulate:a", 0.6, dur * 0.3)
+		t1.parallel().tween_property(shadow, "modulate:a", 0.5, dur * 0.35)
+		await t1.finished
+
+	tree.change_scene_to_file(scene_path)
+	await tree.process_frame
+
+	var new_scene = tree.current_scene
+	if _is_valid(new_scene):
+		new_scene.scale = Vector2(0.0, 1.0)
+		new_scene.position = Vector2(viewport_size.x * 0.5, 0.0)
+
+	# Phase 2: unfold the new scene
+	var t2 = tree.root.create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if _is_valid(new_scene):
+		t2.parallel().tween_property(new_scene, "scale", Vector2.ONE, dur * 0.5)
+		t2.parallel().tween_property(new_scene, "position", Vector2.ZERO, dur * 0.5)
+	t2.parallel().tween_property(flash, "modulate:a", 0.0, dur * 0.35)
+	t2.parallel().tween_property(shadow, "modulate:a", 0.0, dur * 0.35)
+	await t2.finished
+
+	canvas.queue_free()
+	_transition_active = false
+
+
+# =============================================================================
+#  CAMERA2D TWEENS — 5 NEW
+# =============================================================================
+
+# ─── TRAUMA SHAKE ─────────────────────────────────────────────────────────────
+# Trauma-based screen shake. `trauma` is 0.0–1.0 (0 = nothing, 1 = max chaos).
+# Shakes using squared trauma for a natural feel (used in AAA games).
+# Rotation is also affected for extra juiciness.
+# Call repeatedly (e.g. on every hit) to stack trauma.
+#
+# Usage: GlobalTweens.camera_trauma($Camera2D, 0.7)
+static var _camera_trauma := {}
+
+func camera_trauma(camera: Camera2D, trauma: float, max_offset: float = 30.0, max_roll_deg: float = 5.0) -> void:
+	if not _is_valid(camera):
+		return
+
+	# Accumulate trauma (capped at 1.0)
+	var current = _camera_trauma.get(camera, 0.0)
+	_camera_trauma[camera] = min(current + trauma, 1.0)
+
+	# If a loop is already running for this camera, don't start another
+	if current > 0.0:
+		return
+
+	var origin_offset = camera.offset
+	var origin_rot = camera.rotation_degrees
+
+	while _is_valid(camera) and not GT_Safe.is_paused(camera) and _camera_trauma.get(camera, 0.0) > 0.001:
+		var t = _camera_trauma.get(camera, 0.0)
+		var shake = t * t  # quadratic
+		camera.offset = origin_offset + Vector2(
+			rng.randf_range(-max_offset, max_offset) * shake,
+			rng.randf_range(-max_offset, max_offset) * shake
+		)
+		camera.rotation_degrees = origin_rot + rng.randf_range(-max_roll_deg, max_roll_deg) * shake
+
+		# Decay trauma over time
+		_camera_trauma[camera] = max(0.0, t - get_process_delta_time() * 2.0)
+		await get_tree().process_frame
+
+	if _is_valid(camera):
+		camera.offset = origin_offset
+		camera.rotation_degrees = origin_rot
+	_camera_trauma.erase(camera)
+
+
+# ─── LERP TO ─────────────────────────────────────────────────────────────────
+# Smoothly moves the camera's global_position to `world_pos`.
+# Safe to call every frame if you want a tracking camera —
+# this version does a one-shot tween (use camera.position_smoothing for follow).
+#
+# Usage: await GlobalTweens.camera_lerp_to($Camera2D, enemy.global_position, 1.2)
+func camera_lerp_to(camera: Camera2D, world_pos: Vector2, dur: float = 0.6) -> Tween:
+	if not _is_valid(camera):
+		return null
+	var t = _new_tween(camera)
+	t.tween_property(camera, "global_position", world_pos, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	return t
+
+
+# ─── CINEMATIC ZOOM ───────────────────────────────────────────────────────────
+# Slowly breathes the camera in and out for atmospheric tension.
+# Runs until stopped or the camera is freed.
+# Call `camera_cinematic_zoom_stop` to end gracefully.
+#
+# Usage: GlobalTweens.camera_cinematic_zoom($Camera2D, 1.08, 3.0)
+static var _cinematic_zoom_active := {}
+
+func camera_cinematic_zoom(camera: Camera2D, target_zoom: float = 1.08, period: float = 3.0) -> void:
+	if not _is_valid(camera):
+		return
+
+	_cinematic_zoom_active[camera] = true
+	var base_zoom = camera.zoom
+
+	while _is_valid(camera) and _cinematic_zoom_active.get(camera, false) and not GT_Safe.is_paused(camera):
+		var t_in = camera.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		t_in.tween_property(camera, "zoom", Vector2.ONE * target_zoom, period * 0.5)
+		await t_in.finished
+
+		if not _is_valid(camera) or not _cinematic_zoom_active.get(camera, false):
+			break
+
+		var t_out = camera.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		t_out.tween_property(camera, "zoom", base_zoom, period * 0.5)
+		await t_out.finished
+
+	if _is_valid(camera):
+		camera.zoom = base_zoom
+	_cinematic_zoom_active.erase(camera)
+
+func camera_cinematic_zoom_stop(camera: Camera2D) -> void:
+	_cinematic_zoom_active.erase(camera)
+
+
+# ─── RECOIL ───────────────────────────────────────────────────────────────────
+# Gun-recoil style camera kick. Pushes the offset in a direction then
+# springs back with overshoot. Great for shooting feedback.
+#
+# Usage: GlobalTweens.camera_recoil($Camera2D, Vector2(0, -1), 12.0)
+func camera_recoil(camera: Camera2D, direction: Vector2, kick_strength: float = 15.0, dur: float = 0.22) -> Tween:
+	if not _is_valid(camera):
+		return null
+	var origin = camera.offset
+	var kick_target = origin + direction.normalized() * kick_strength
+	var t = camera.create_tween()
+	t.tween_property(camera, "offset", kick_target, dur * 0.2).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	t.tween_property(camera, "offset", origin, dur * 0.8).set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	return t
+
+
+# ─── PAN AND RETURN ───────────────────────────────────────────────────────────
+# Pans the camera to a world point, holds there for `hold_dur` seconds,
+# then returns to the original position. Ideal for cutscene callouts.
+#
+# Usage: await GlobalTweens.camera_pan_and_return($Camera2D, explosion_pos, 0.8, 1.5)
+func camera_pan_and_return(camera: Camera2D, world_pos: Vector2, travel_dur: float = 0.8, hold_dur: float = 1.5) -> void:
+	if not _is_valid(camera):
+		return
+	var origin = camera.global_position
+	var t_go = camera.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	t_go.tween_property(camera, "global_position", world_pos, travel_dur)
+	await t_go.finished
+
+	await get_tree().create_timer(hold_dur).timeout
+
+	if not _is_valid(camera):
+		return
+	var t_back = camera.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	t_back.tween_property(camera, "global_position", origin, travel_dur)
+	await t_back.finished
+
+
+# =============================================================================
+#  GENERAL TWEENS — 10 NEW
+# =============================================================================
+
+# ─── RUBBER BAND ──────────────────────────────────────────────────────────────
+# Snaps each axis independently with different elastic strength.
+# Great for UI elements that feel physically constrained.
+# scale_x / scale_y: overshoot multipliers per axis.
+#
+# Usage: GlobalTweens.rubber_band($Button, 1.4, 1.1)
+func rubber_band(node: Node2D, scale_x: float = 1.3, scale_y: float = 1.1, dur: float = 0.35) -> Tween:
+	if not _is_valid(node):
+		return null
+	var s = node.scale
+	var t = node.create_tween()
+	# X overshoots first, then Y catches up
+	t.tween_property(node, "scale", Vector2(s.x * scale_x, s.y / scale_y), dur * 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(node, "scale", Vector2(s.x / scale_x * 1.05, s.y * scale_y), dur * 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(node, "scale", s, dur * 0.3).set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	return t
+
+
+# ─── MAGNETIC SNAP ────────────────────────────────────────────────────────────
+# Snaps the node toward a target as if pulled by a magnet.
+# Starts fast then dramatically decelerates just before the snap point.
+# `snap_pos`: the world/local position to snap to.
+# `overshoot`: how far past the target to go before settling.
+#
+# Usage: GlobalTweens.magnetic_snap($Coin, $Magnet.global_position, 20.0)
+func magnetic_snap(node: Node2D, snap_pos: Vector2, overshoot: float = 20.0, dur: float = 0.3) -> Tween:
+	if not _is_valid(node):
+		return null
+	var dir = (snap_pos - node.global_position).normalized()
+	var overshoot_pos = snap_pos + dir * overshoot
+	var t = node.create_tween()
+	t.tween_property(node, "global_position", overshoot_pos, dur * 0.7).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	t.tween_property(node, "global_position", snap_pos, dur * 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	return t
+
+
+# ─── HEARTBEAT ────────────────────────────────────────────────────────────────
+# Double-beat pulse — the characteristic lub-DUB of a heart.
+# Perfect for low-health warnings or love meters.
+# `bpm`: beats per minute. `factor`: scale peak.
+#
+# Usage: GlobalTweens.heartbeat($HealthIcon, 70.0, 1.25)
+static var _heartbeat_active := {}
+
+func heartbeat(node: Node2D, bpm: float = 72.0, factor: float = 1.2) -> void:
+	if not _is_valid(node):
+		return
+	_heartbeat_active[node] = true
+	var s = node.scale
+	var beat_dur = 60.0 / bpm
+
+	while _is_valid(node) and _heartbeat_active.get(node, false) and not GT_Safe.is_paused(node):
+		# Lub (small beat)
+		var t1 = node.create_tween()
+		t1.tween_property(node, "scale", s * factor * 0.75, beat_dur * 0.08).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		t1.tween_property(node, "scale", s, beat_dur * 0.1).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+		await t1.finished
+		await get_tree().create_timer(beat_dur * 0.06).timeout
+
+		if not _is_valid(node) or not _heartbeat_active.get(node, false):
+			break
+
+		# Dub (big beat)
+		var t2 = node.create_tween()
+		t2.tween_property(node, "scale", s * factor, beat_dur * 0.1).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		t2.tween_property(node, "scale", s, beat_dur * 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		await t2.finished
+
+		await get_tree().create_timer(beat_dur * 0.55).timeout
+
+	if _is_valid(node):
+		node.scale = s
+	_heartbeat_active.erase(node)
+
+func heartbeat_stop(node: Node2D) -> void:
+	_heartbeat_active.erase(node)
+
+
+# ─── SHOCKWAVE SCALE ──────────────────────────────────────────────────────────
+# Fast outward ring-scale explosion then collapse. Looks like a visible shockwave
+# emanating from the node. Use on impact, explosion center, ability land.
+#
+# Usage: GlobalTweens.shockwave_scale($ExplosionCenter, 3.0, 0.4)
+func shockwave_scale(node: Node2D, peak_scale: float = 3.0, dur: float = 0.35) -> Tween:
+	if not _is_valid(node):
+		return null
+	var s = node.scale
+	var t = node.create_tween()
+	t.tween_property(node, "scale", s * peak_scale, dur * 0.2).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(node, "modulate:a", 0.0, dur * 0.8)
+	t.tween_property(node, "scale", s * (peak_scale * 1.5), dur * 0.8).set_trans(Tween.TRANS_LINEAR).set_ease(Tween.EASE_IN)
+	t.finished.connect(func():
+		if _is_valid(node):
+			node.scale = s
+			node.modulate.a = 1.0
+	)
+	return t
+
+
+# ─── WARP ENTRY ───────────────────────────────────────────────────────────────
+# Stretches the node horizontally on arrival (like teleportation from a warp gate),
+# then settles back with an elastic bounce. Iconic retro sci-fi feel.
+#
+# Usage: GlobalTweens.warp_entry($Player, 2.5)
+func warp_entry(node: Node2D, stretch_factor: float = 2.5, dur: float = 0.4) -> Tween:
+	if not _is_valid(node):
+		return null
+	var s = node.scale
+	node.scale = Vector2(s.x * stretch_factor, s.y * 0.2)
+	node.modulate.a = 0.0
+	var t = node.create_tween()
+	t.parallel().tween_property(node, "scale", s, dur).set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(node, "modulate:a", 1.0, dur * 0.4)
+	return t
+
+
+# ─── DEATH SPIRAL ─────────────────────────────────────────────────────────────
+# Iconic RPG death: node spins, shrinks, and fades simultaneously.
+# Slightly more dramatic than explode_and_free — use for player deaths, boss phases.
+# Frees the node when complete.
+#
+# Usage: await GlobalTweens.death_spiral($Enemy).finished
+func death_spiral(node: Node2D, rotations: float = 3.0, dur: float = 0.8) -> Tween:
+	if not _is_valid(node):
+		return null
+	var t = node.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	t.parallel().tween_property(node, "rotation_degrees", node.rotation_degrees + rotations * 360.0, dur)
+	t.parallel().tween_property(node, "scale", Vector2.ZERO, dur)
+	t.parallel().tween_property(node, "modulate:a", 0.0, dur * 0.6)
+	# Drift slightly downward for gravity feel
+	t.parallel().tween_property(node, "position", node.position + Vector2(0.0, 40.0), dur).set_trans(Tween.TRANS_QUAD)
+	t.finished.connect(func():
+		if _is_valid(node):
+			node.queue_free()
+	)
+	return t
+
+
+# ─── SLAM DOWN ────────────────────────────────────────────────────────────────
+# Node slams straight down from `height` pixels above its current position,
+# hits the ground with a squash, then springs back upright.
+# Optional camera shake on impact.
+#
+# Usage: GlobalTweens.slam_down($Rock, 300.0, $Camera2D)
+func slam_down(node: Node2D, height: float = 250.0, dur: float = 0.35, camera: Camera2D = null) -> Tween:
+	if not _is_valid(node):
+		return null
+	var dest = node.position
+	node.position = dest + Vector2(0.0, -height)
+	var s = node.scale
+
+	var t = node.create_tween()
+	# Fall phase — EXPO ease in gives acceleration feel
+	t.tween_property(node, "position", dest, dur * 0.7).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	# Impact squash
+	t.tween_callback(func():
+		if _is_valid(node):
+			node.scale = Vector2(s.x * 1.4, s.y * 0.6)
+		if camera:
+			camera_trauma(camera, 0.4)
+	)
+	# Spring back
+	t.tween_property(node, "scale", s, dur * 0.4).set_trans(Tween.TRANS_SPRING).set_ease(Tween.EASE_OUT)
+	return t
+
+
+# ─── FLICKER ALIVE ────────────────────────────────────────────────────────────
+# Irregular modulate flicker that suggests a damaged but still-alive state.
+# Different from blink (too regular) and phase_shift (too synchronized).
+# Runs forever until stopped.
+#
+# Usage: GlobalTweens.flicker_alive($DamagedEnemy)
+static var _flicker_alive_active := {}
+
+func flicker_alive(node: CanvasItem, min_alpha: float = 0.3, max_alpha: float = 1.0) -> void:
+	if not _is_valid(node):
+		return
+	_flicker_alive_active[node] = true
+	while _is_valid(node) and _flicker_alive_active.get(node, false) and not GT_Safe.is_paused(node):
+		var target_alpha = rng.randf_range(min_alpha, max_alpha)
+		var speed = rng.randf_range(0.03, 0.15)
+		var t = node.create_tween()
+		t.tween_property(node, "modulate:a", target_alpha, speed)
+		await t.finished
+	if _is_valid(node):
+		node.modulate.a = max_alpha
+	_flicker_alive_active.erase(node)
+
+func flicker_alive_stop(node: CanvasItem) -> void:
+	_flicker_alive_active.erase(node)
+
+
+# ─── PENDULUM CHAIN ───────────────────────────────────────────────────────────
+# Swings an array of nodes in sequence like chain links — each node starts
+# its swing slightly after the previous one. Great for hanging decorations,
+# menus items, or domino-style reactions.
+#
+# Usage: GlobalTweens.pendulum_chain([$Chain1, $Chain2, $Chain3], 20.0, 0.6)
+func pendulum_chain(nodes: Array, degrees: float = 20.0, dur: float = 0.5, stagger: float = 0.08, infinite: bool = true) -> void:
+	for i in range(nodes.size()):
+		var node = nodes[i]
+		if not _is_valid(node) or not node is Node2D:
+			continue
+		# Delayed start per node
+		await get_tree().create_timer(stagger * i).timeout
+		if not _is_valid(node):
+			continue
+		swing(node, degrees, dur, infinite)
+
+
+# ─── DEPTH POP ────────────────────────────────────────────────────────────────
+# Simulates 2.5D depth by scaling up + shifting the modulate slightly brighter
+# and nudging a shadow node (if provided) in the opposite direction.
+# Used to make flat sprites feel lifted off the canvas.
+#
+# Usage: GlobalTweens.depth_pop($Sprite, $Shadow)
+func depth_pop(node: Node2D, shadow: Node2D = null, lift_scale: float = 1.15, shadow_offset: float = 12.0, dur: float = 0.2) -> Tween:
+	if not _is_valid(node):
+		return null
+	var s = node.scale
+	var orig_mod = node.modulate
+
+	var t = node.create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(node, "scale", s * lift_scale, dur)
+	t.parallel().tween_property(node, "modulate", orig_mod * Color(1.15, 1.15, 1.15, 1.0), dur)
+
+	if _is_valid(shadow):
+		var shadow_origin = shadow.position
+		t.parallel().tween_property(shadow, "position", shadow_origin + Vector2(shadow_offset, shadow_offset), dur)
+
+	t.finished.connect(func():
+		if not _is_valid(node):
+			return
+		var t2 = node.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		t2.parallel().tween_property(node, "scale", s, dur)
+		t2.parallel().tween_property(node, "modulate", orig_mod, dur)
+		if _is_valid(shadow):
+			var shadow_orig = shadow.position
+			t2.parallel().tween_property(shadow, "position", shadow_orig - Vector2(shadow_offset, shadow_offset), dur)
+	)
+	return t
+
+
+# ─── CASCADE FADE IN ──────────────────────────────────────────────────────────
+# Fades in an array of nodes with a staggered delay between each.
+# Perfect for menu screens, UI lists, inventory grids appearing on load.
+#
+# Usage: await GlobalTweens.cascade_fade_in([$A, $B, $C, $D], 0.3, 0.1)
+func cascade_fade_in(nodes: Array, dur: float = 0.3, stagger: float = 0.1, from_below: float = 20.0) -> void:
+	for i in range(nodes.size()):
+		var node = nodes[i]
+		if not _is_valid(node):
+			continue
+		node.modulate.a = 0.0
+		if node is Node2D:
+			node.position.y += from_below
+
+	for i in range(nodes.size()):
+		var node = nodes[i]
+		if not _is_valid(node):
+			continue
+		await get_tree().create_timer(stagger * i).timeout
+		if not _is_valid(node):
+			continue
+		var t = node.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(node, "modulate:a", 1.0, dur)
+		if node is Node2D:
+			t.parallel().tween_property(node, "position:y", node.position.y - from_below, dur)
+
+
+# ─── IMPACT FREEZE ────────────────────────────────────────────────────────────
+# Hit-stop effect: slows the engine time scale to near-zero for a brief moment,
+# creating that satisfying "freeze frame" on impact found in Street Fighter / Celeste.
+# WARNING: affects ALL nodes. Use sparingly and avoid during physics-critical frames.
+# `freeze_dur`: how long the freeze lasts (typically 0.05–0.15s).
+# `recovery_dur`: how long to interpolate back to normal speed.
+#
+# Usage: GlobalTweens.impact_freeze(0.08, 0.12)
+static var _impact_freeze_active := false
+
+func impact_freeze(freeze_dur: float = 0.08, recovery_dur: float = 0.12, freeze_scale: float = 0.05) -> void:
+	if _impact_freeze_active:
+		return
+	_impact_freeze_active = true
+	Engine.time_scale = freeze_scale
+	await get_tree().create_timer(freeze_dur * freeze_scale).timeout
+	# Restore time scale over recovery_dur using real time
+	var steps = 20
+	var step_time = recovery_dur / steps
+	for i in range(steps):
+		Engine.time_scale = lerp(freeze_scale, 1.0, float(i + 1) / steps)
+		await get_tree().create_timer(step_time).timeout
+	Engine.time_scale = 1.0
+	_impact_freeze_active = false
+
+
+# ─── ORBIT AROUND ─────────────────────────────────────────────────────────────
+# Tweens `orbiter` around `center_node` in a circular arc.
+# `angle_degrees`: total arc to travel (360 = full orbit).
+# `radius`: orbit radius in pixels.
+# `dur`: duration of the arc.
+# `start_angle_deg`: starting angle (0 = right, 90 = down).
+#
+# Usage: GlobalTweens.orbit_around($Satellite, $Planet, 360.0, 80.0, 2.0)
+func orbit_around(orbiter: Node2D, center_node: Node2D, angle_degrees: float = 360.0, radius: float = 80.0, dur: float = 2.0, start_angle_deg: float = 0.0) -> void:
+	if not _is_valid(orbiter) or not _is_valid(center_node):
+		return
+	var steps = int(dur / 0.016)  # ~60 FPS steps
+	for i in range(steps + 1):
+		if not _is_valid(orbiter) or not _is_valid(center_node):
+			return
+		var progress = float(i) / steps
+		var current_angle = deg_to_rad(start_angle_deg + angle_degrees * progress)
+		orbiter.global_position = center_node.global_position + Vector2(cos(current_angle), sin(current_angle)) * radius
+		await get_tree().process_frame
+
+
+# ─── MORPH COLOR SEQUENCE ──────────────────────────────────────────────────────
+# Animates a node's modulate through an arbitrary list of colors in order.
+# More flexible than color_flash — you define the full sequence.
+# `loop`: true = restart after the last color.
+#
+# Usage: GlobalTweens.morph_color_sequence($Portal, [Color.RED, Color.CYAN, Color.YELLOW], 0.4)
+static var _morph_color_active := {}
+
+func morph_color_sequence(node: CanvasItem, colors: Array, step_dur: float = 0.3, loop: bool = false) -> void:
+	if not _is_valid(node) or colors.is_empty():
+		return
+	_morph_color_active[node] = true
+	var id = rng.randi()
+	_morph_color_active[node] = id
+	while _is_valid(node) and _morph_color_active.get(node) == id and not GT_Safe.is_paused(node):
+		for color in colors:
+			if not _is_valid(node) or _morph_color_active.get(node) != id:
+				break
+			var t = node.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+			t.tween_property(node, "modulate", color, step_dur)
+			await t.finished
+		if not loop:
+			break
+	_morph_color_active.erase(node)
+
+func morph_color_sequence_stop(node: CanvasItem) -> void:
+	_morph_color_active.erase(node)
+
+
+# =============================================================================
+#  CATALOG DISPATCHER — GlobalTweens.play(node, "category.name", opts)
+#  Bridges the classic singleton to the category catalog (GT_Catalog) and
+#  the safety layer (GT_Safe). See docs/ANIMATIONS.md for the full list.
+# =============================================================================
+
+func _ready() -> void:
+	var registry := {
+		"hit": GT_Hit, "jump": GT_Jump, "death": GT_Death, "squish": GT_Squish,
+		"slime": GT_Slime, "player": GT_Player, "boss": GT_Boss,
+		"ui_buttons": GT_Buttons, "ui_text": GT_Text, "ui_generic": GT_UI,
+		"environment": GT_Env, "fog": GT_Fog, "flash": GT_Flash,
+		"camera": GT_Camera, "fx": GT_FX, "generic": GT_Generic,
+	}
+	for category in registry:
+		GT_Catalog.register(category, registry[category].get_defs())
+	print("[GlobalTweens] %d animations ready (%d categories)." % [
+		GT_Catalog.count(), GT_Catalog.categories().size()
+	])
+
+
+## Error handling for invalid calls (null/freed nodes, unknown ids...).
+##   "crash"  (default) — push_error, for development & fixing
+##   "warn"             — push_warning, non-fatal
+##   "ignore"           — skip invalid calls silently (production)
+var error_mode: String:
+	get:
+		return GT_Safe.error_mode
+	set(v):
+		GT_Safe.error_mode = v
+
+
+## Plays a catalog animation with automatic safety + anti-spam.
+func play(node: Variant, id: String, opts := {}) -> Tween:
+	return GT_Catalog.play(node, id, opts)
+
+
+## Kills every tracked animation on the node and restores its snapshot.
+## Any infinite loop (spin, beat_pulse, rainbow, trail, heartbeat...) also stops.
+func stop(node: Variant) -> void:
+	GT_Safe.stop(node)
+
+
+## Stops every tracked node in the project.
+func stop_all() -> void:
+	GT_Safe.stop_all()
+
+
+## Full reset: stop + clear the pause flag so new animations can start at once.
+func reset(node: Variant) -> void:
+	GT_Safe.reset(node)
+
+
+## True when the node still has tracked tweens running.
+func is_animating(node: Variant) -> bool:
+	return GT_Safe.is_animating(node)
+
+
+## Names of all catalog animations, optionally filtered by category.
+func catalog_names(category: String = "") -> Array:
+	return GT_Catalog.names(category)
+
+
+## List of catalog categories.
+func catalog_categories() -> Array:
+	return GT_Catalog.categories()
+
+
+## Total number of catalog animations.
+func catalog_count() -> int:
+	return GT_Catalog.count()
