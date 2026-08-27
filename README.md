@@ -2,7 +2,7 @@
 **Universal Tween Toolkit for Godot 4.x**  
 *One line. Infinite motion. Develop without overthinking.*
 
-A massive collection of **69+ ready-to-use tween animations** for your Godot 4 projects.  
+A massive collection of **70+ ready-to-use tween animations** for your Godot 4 projects.  
 Bring your UI, characters, cameras, and effects to life with one-line calls — no more messing with raw tweens.
 ---
 Version 2 is finaly here → https://github.com/Rp-ics/Godot-Engine-GlobalTweens/tree/v2
