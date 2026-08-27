@@ -4,6 +4,7 @@
 
 A massive collection of **69+ ready-to-use tween animations** for your Godot 4 projects.  
 Bring your UI, characters, cameras, and effects to life with one-line calls — no more messing with raw tweens.
+---
 Version 2 is finaly here → https://github.com/Rp-ics/Godot-Engine-GlobalTweens/tree/v2
 V2.0 is somethingVersion 2.0 is something extraordinary. Give a try, make your animation easy and fluid vith GlobalTweens V2.0
 ---
