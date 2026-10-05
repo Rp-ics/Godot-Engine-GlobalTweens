@@ -2628,3 +2628,64 @@ func morph_color_sequence(node: CanvasItem, colors: Array, step_dur: float = 0.3
 
 func morph_color_sequence_stop(node: CanvasItem) -> void:
 	_morph_color_active.erase(node)
+
+
+# ─── EXTRA HELPER ANIMATIONS ──────────────────────────────────────────────────
+## Jelly bounce animation: dynamic squash and stretch elastic recoil.
+func jelly_bounce(node: Node, intensity: float = 1.3, dur: float = 0.5) -> Tween:
+	if not _is_valid(node): return null
+	var orig_scale: Vector2 = node.scale if node is Node2D or node is Control else Vector2.ONE
+	var tween: Tween = _new_tween(node)
+	var sx: float = orig_scale.x * intensity
+	var sy: float = orig_scale.y / intensity
+	var d3: float = dur / 3.0
+	tween.tween_property(node, "scale", Vector2(sx, sy), d3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(node, "scale", Vector2(orig_scale.x / (intensity * 0.85), orig_scale.y * (intensity * 0.85)), d3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(node, "scale", orig_scale, d3).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	return tween
+
+## Glow flicker effect on modulate color or Light2D energy.
+func glow_flicker(node: Node, max_energy: float = 1.5, dur: float = 0.6, flashes: int = 4) -> Tween:
+	if not _is_valid(node): return null
+	var tween: Tween = _new_tween(node)
+	var step_dur: float = dur / (flashes * 2.0)
+	var target_prop: String = "energy" if "energy" in node else "modulate:a"
+	var base_val: float = node.get(target_prop) if target_prop in node else 1.0
+	for i in range(flashes):
+		var target_val: float = base_val * max_energy if i % 2 == 0 else base_val * 0.4
+		tween.tween_property(node, target_prop, target_val, step_dur).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(node, target_prop, base_val, step_dur).set_trans(Tween.TRANS_SINE)
+	return tween
+
+## Cyberpunk jitter & rotation glitch wobble effect.
+func glitch_wobble(node: Node, offset_power: float = 8.0, dur: float = 0.35) -> Tween:
+	if not _is_valid(node): return null
+	var orig_pos: Vector2 = node.position if "position" in node else Vector2.ZERO
+	var orig_rot: float = node.rotation if "rotation" in node else 0.0
+	var tween: Tween = _new_tween(node)
+	var steps: int = 5
+	var step_dur: float = dur / steps
+	for i in range(steps - 1):
+		var rx: float = orig_pos.x + randf_range(-offset_power, offset_power)
+		var ry: float = orig_pos.y + randf_range(-offset_power, offset_power)
+		var rrot: float = orig_rot + deg_to_rad(randf_range(-6.0, 6.0))
+		tween.tween_property(node, "position", Vector2(rx, ry), step_dur * 0.5)
+		tween.tween_property(node, "rotation", rrot, step_dur * 0.5)
+	tween.tween_property(node, "position", orig_pos, step_dur * 0.5).set_trans(Tween.TRANS_QUAD)
+	tween.tween_property(node, "rotation", orig_rot, step_dur * 0.5).set_trans(Tween.TRANS_QUAD)
+	return tween
+
+## Floating loop for node with optional inverse scaling shadow node.
+func shadow_float(node: Node, height: float = 12.0, shadow_node: Node = null, dur: float = 1.5) -> Tween:
+	if not _is_valid(node): return null
+	var orig_pos: Vector2 = node.position if "position" in node else Vector2.ZERO
+	var shadow_scale: Vector2 = shadow_node.scale if shadow_node and "scale" in shadow_node else Vector2.ONE
+	var tween: Tween = _new_tween(node)
+	tween.set_loops()
+	tween.tween_property(node, "position:y", orig_pos.y - height, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if shadow_node and _is_valid(shadow_node):
+		tween.parallel().tween_property(shadow_node, "scale", shadow_scale * 0.7, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(node, "position:y", orig_pos.y, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if shadow_node and _is_valid(shadow_node):
+		tween.parallel().tween_property(shadow_node, "scale", shadow_scale, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	return tween
