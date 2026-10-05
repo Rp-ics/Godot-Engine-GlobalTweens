@@ -24,6 +24,7 @@ const SNAP_PROPS: PackedStringArray = [
 	"position", "scale", "rotation", "rotation_degrees",
 	"modulate", "pivot_offset", "size", "offset",
 	"zoom", "energy", "value", "visible", "text",
+	"volume_db", "pitch_scale",
 ]
 
 ## node -> { snap: Dictionary, tweens: {Tween: true}, kinds: {kind: Tween} }

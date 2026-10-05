@@ -45,6 +45,8 @@ func _dummy(category: String) -> Node:
 			return Camera2D.new()
 		"environment":
 			return PointLight2D.new()
+		"audio":
+			return AudioStreamPlayer.new()
 		_:
 			return Node2D.new()
 

@@ -2,7 +2,7 @@
 
 GlobalTweens.play(node, "category.name", opts)
 
-153 animations in 16 categories. Every animation accepts the
+157 animations in 17 categories. Every animation accepts the
 [unified options](OPTIONS.md): dur, loops, delay, trans, ease, keep_end_state.
 
 - [hit](#hit)
@@ -21,6 +21,7 @@ GlobalTweens.play(node, "category.name", opts)
 - [camera](#camera)
 - [fx](#fx)
 - [generic](#generic)
+- [audio](#audio)
 
 ---
 
@@ -257,3 +258,12 @@ All death animations free the node when finished. restore: false.
 | generic.stretch_loop | Alternating x/y stretch (loop) | factor, dur |
 | generic.color_cycle | Cycles modulate through the palette (loop) | palette, dur |
 | generic.blob | Bouncy squash-stretch (loop) | factor, dur |
+
+## audio
+
+| id | Description | Params |
+|---|---|---|
+| audio.fade_volume | Smoothly fade audio volume in dB | target_db, dur |
+| audio.pitch_bend | Pitch scale bend effect | target_pitch, dur |
+| audio.duck | Temporarily duck audio volume for sound effect emphasis | duck_db, dur, hold |
+| audio.pulse | Rhythmic volume pulse loop | min_db, max_db, dur, loops |

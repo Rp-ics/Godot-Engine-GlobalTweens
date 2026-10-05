@@ -5,6 +5,17 @@
 #  License: MIT - Free to use, modify, and distribute
 # =============================================================================
 #
+#  ARCHITECTURE (v2)
+#  ----------------------------------------------------------------------------
+#  This autoload bundles THREE ways to animate:
+#    1. Category catalog (recommended): GlobalTweens.play(node,
+#       "category.name", opts) - about 150 curated animations with automatic
+#       safety (snapshot/restore), anti-spam and restore-on-finish.
+#    2. Classic helpers below: the original 112+ functions, kept 100%
+#       backward compatible (same names, same signatures).
+#    3. Safety layer (GT_Safe): every helper tween is tracked automatically;
+#       play()/stop()/stop_all()/reset() kill everything and restore states.
+#
 #  SETUP (AutoLoad Singleton - recommended)
 #  ----------------------------------------------------------------------------
 #  Project Settings -> AutoLoad -> Add GlobalTweens.gd -> Enable as Singleton
@@ -171,7 +182,12 @@ func _is_valid(n) -> bool:
 func _new_tween(target: Node) -> Tween:
 	if not _is_valid(target):
 		return null
-	return target.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var tween: Tween = target.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	# Safety layer: snapshot the node state and track every helper tween so
+	# stop()/stop_all()/reset() can always kill it and restore the snapshot.
+	GT_Safe.save_state(target)
+	GT_Safe.track_tween(target, tween)
+	return tween
 
 
 # =============================================================================
@@ -589,7 +605,7 @@ func spin(node: Node2D, speed: float = 180.0, infinite: bool = true, cycles: int
 	var total_degrees = 0.0
 	var target_degrees = cycles * 360.0 if not infinite else INF
 
-	while _is_valid(node) and _spin_active.get(node) == my_id:
+	while _is_valid(node) and _spin_active.get(node) == my_id and not GT_Safe.is_paused(node):
 		var delta = speed * get_process_delta_time()
 		node.rotation_degrees += delta
 		total_degrees += abs(delta)
@@ -601,6 +617,8 @@ func spin(node: Node2D, speed: float = 180.0, infinite: bool = true, cycles: int
 
 	# Cleanup
 	if _spin_active.get(node) == my_id:
+		_spin_active.erase(node)
+	elif not _is_valid(node):
 		_spin_active.erase(node)
 
 
@@ -667,7 +685,7 @@ func beat_pulse(node: Node2D, bpm: float = 120.0, factor: float = 1.2, repeats: 
 	# - the node is valid
 	# - the ID of this call is still active
 	# - the number of iterations has not been reached
-	while _is_valid(node) and _beat_call_ids.get(node) == my_id and (max_repeats == 0 or count < max_repeats):
+	while _is_valid(node) and _beat_call_ids.get(node) == my_id and not GT_Safe.is_paused(node) and (max_repeats == 0 or count < max_repeats):
 		pop_scale(node, factor, interval * 0.1)
 		await get_tree().create_timer(interval).timeout
 		count += 1
@@ -1502,7 +1520,7 @@ func label_rainbow(label: Label, speed: float = 1.0, saturation: float = 0.8, va
 	var total_hue_shift = 0.0
 	var target_hue_shift = cycles * 1.0 if not infinite else INF
 
-	while _is_valid(label) and _label_rainbow_active.get(label) == my_id:
+	while _is_valid(label) and _label_rainbow_active.get(label) == my_id and not GT_Safe.is_paused(label):
 		hue += speed * get_process_delta_time()
 		total_hue_shift += speed * get_process_delta_time()
 
@@ -1629,7 +1647,7 @@ func trail(node: Node2D, length: int = 5, interval: float = 0.1, fade_duration: 
 
 	var count = 0
 
-	while _is_valid(node) and _trail_active.get(node) == my_id:
+	while _is_valid(node) and _trail_active.get(node) == my_id and not GT_Safe.is_paused(node):
 		# If length > 0 and we've spawned enough clones, stop
 		if length > 0 and count >= length:
 			break
@@ -1656,6 +1674,8 @@ func trail(node: Node2D, length: int = 5, interval: float = 0.1, fade_duration: 
 
 	# Cleanup
 	if _trail_active.get(node) == my_id:
+		_trail_active.erase(node)
+	elif not _is_valid(node):
 		_trail_active.erase(node)
 
 # =============================================================================
@@ -1730,7 +1750,7 @@ func tilemap_shake(tilemap: TileMap, intensity: float = 5.0, duration: float = 0
 func light_flicker(light: PointLight2D, intensity_min: float = 0.3, intensity_max: float = 1.0, speed: float = 0.1) -> void:
 	if not _is_valid(light):
 		return
-	while _is_valid(light):
+	while _is_valid(light) and not GT_Safe.is_paused(light):
 		light.energy = rng.randf_range(intensity_min, intensity_max)
 		await get_tree().create_timer(speed).timeout
 
@@ -2174,7 +2194,7 @@ func camera_trauma(camera: Camera2D, trauma: float, max_offset: float = 30.0, ma
 	var origin_offset = camera.offset
 	var origin_rot = camera.rotation_degrees
 
-	while _is_valid(camera) and _camera_trauma.get(camera, 0.0) > 0.001:
+	while _is_valid(camera) and not GT_Safe.is_paused(camera) and _camera_trauma.get(camera, 0.0) > 0.001:
 		var t = _camera_trauma.get(camera, 0.0)
 		var shake = t * t  # quadratic
 		camera.offset = origin_offset + Vector2(
@@ -2222,7 +2242,7 @@ func camera_cinematic_zoom(camera: Camera2D, target_zoom: float = 1.08, period: 
 	_cinematic_zoom_active[camera] = true
 	var base_zoom = camera.zoom
 
-	while _is_valid(camera) and _cinematic_zoom_active.get(camera, false):
+	while _is_valid(camera) and _cinematic_zoom_active.get(camera, false) and not GT_Safe.is_paused(camera):
 		var t_in = camera.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		t_in.tween_property(camera, "zoom", Vector2.ONE * target_zoom, period * 0.5)
 		await t_in.finished
@@ -2335,7 +2355,7 @@ func heartbeat(node: Node2D, bpm: float = 72.0, factor: float = 1.2) -> void:
 	var s = node.scale
 	var beat_dur = 60.0 / bpm
 
-	while _is_valid(node) and _heartbeat_active.get(node, false):
+	while _is_valid(node) and _heartbeat_active.get(node, false) and not GT_Safe.is_paused(node):
 		# Lub (small beat)
 		var t1 = node.create_tween()
 		t1.tween_property(node, "scale", s * factor * 0.75, beat_dur * 0.08).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
@@ -2462,7 +2482,7 @@ func flicker_alive(node: CanvasItem, min_alpha: float = 0.3, max_alpha: float = 
 	if not _is_valid(node):
 		return
 	_flicker_alive_active[node] = true
-	while _is_valid(node) and _flicker_alive_active.get(node, false):
+	while _is_valid(node) and _flicker_alive_active.get(node, false) and not GT_Safe.is_paused(node):
 		var target_alpha = rng.randf_range(min_alpha, max_alpha)
 		var speed = rng.randf_range(0.03, 0.15)
 		var t = node.create_tween()
@@ -2615,7 +2635,7 @@ func morph_color_sequence(node: CanvasItem, colors: Array, step_dur: float = 0.3
 	_morph_color_active[node] = true
 	var id = rng.randi()
 	_morph_color_active[node] = id
-	while _is_valid(node) and _morph_color_active.get(node) == id:
+	while _is_valid(node) and _morph_color_active.get(node) == id and not GT_Safe.is_paused(node):
 		for color in colors:
 			if not _is_valid(node) or _morph_color_active.get(node) != id:
 				break
@@ -2628,3 +2648,138 @@ func morph_color_sequence(node: CanvasItem, colors: Array, step_dur: float = 0.3
 
 func morph_color_sequence_stop(node: CanvasItem) -> void:
 	_morph_color_active.erase(node)
+
+
+# ─── EXTRA HELPER ANIMATIONS ──────────────────────────────────────────────────
+## Jelly bounce animation: dynamic squash and stretch elastic recoil.
+func jelly_bounce(node: Node, intensity: float = 1.3, dur: float = 0.5) -> Tween:
+	if not _is_valid(node): return null
+	var orig_scale: Vector2 = node.scale if node is Node2D or node is Control else Vector2.ONE
+	var tween: Tween = _new_tween(node)
+	var sx: float = orig_scale.x * intensity
+	var sy: float = orig_scale.y / intensity
+	var d3: float = dur / 3.0
+	tween.tween_property(node, "scale", Vector2(sx, sy), d3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(node, "scale", Vector2(orig_scale.x / (intensity * 0.85), orig_scale.y * (intensity * 0.85)), d3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(node, "scale", orig_scale, d3).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	return tween
+
+## Glow flicker effect on modulate color or Light2D energy.
+func glow_flicker(node: Node, max_energy: float = 1.5, dur: float = 0.6, flashes: int = 4) -> Tween:
+	if not _is_valid(node): return null
+	var tween: Tween = _new_tween(node)
+	var step_dur: float = dur / (flashes * 2.0)
+	var target_prop: String = "energy" if "energy" in node else "modulate:a"
+	var base_val: float = node.get(target_prop) if target_prop in node else 1.0
+	for i in range(flashes):
+		var target_val: float = base_val * max_energy if i % 2 == 0 else base_val * 0.4
+		tween.tween_property(node, target_prop, target_val, step_dur).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(node, target_prop, base_val, step_dur).set_trans(Tween.TRANS_SINE)
+	return tween
+
+## Cyberpunk jitter & rotation glitch wobble effect.
+func glitch_wobble(node: Node, offset_power: float = 8.0, dur: float = 0.35) -> Tween:
+	if not _is_valid(node): return null
+	var orig_pos: Vector2 = node.position if "position" in node else Vector2.ZERO
+	var orig_rot: float = node.rotation if "rotation" in node else 0.0
+	var tween: Tween = _new_tween(node)
+	var steps: int = 5
+	var step_dur: float = dur / steps
+	for i in range(steps - 1):
+		var rx: float = orig_pos.x + randf_range(-offset_power, offset_power)
+		var ry: float = orig_pos.y + randf_range(-offset_power, offset_power)
+		var rrot: float = orig_rot + deg_to_rad(randf_range(-6.0, 6.0))
+		tween.tween_property(node, "position", Vector2(rx, ry), step_dur * 0.5)
+		tween.tween_property(node, "rotation", rrot, step_dur * 0.5)
+	tween.tween_property(node, "position", orig_pos, step_dur * 0.5).set_trans(Tween.TRANS_QUAD)
+	tween.tween_property(node, "rotation", orig_rot, step_dur * 0.5).set_trans(Tween.TRANS_QUAD)
+	return tween
+
+## Floating loop for node with optional inverse scaling shadow node.
+func shadow_float(node: Node, height: float = 12.0, shadow_node: Node = null, dur: float = 1.5) -> Tween:
+	if not _is_valid(node): return null
+	var orig_pos: Vector2 = node.position if "position" in node else Vector2.ZERO
+	var shadow_scale: Vector2 = shadow_node.scale if shadow_node and "scale" in shadow_node else Vector2.ONE
+	var tween: Tween = _new_tween(node)
+	tween.set_loops()
+	tween.tween_property(node, "position:y", orig_pos.y - height, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if shadow_node and _is_valid(shadow_node):
+		tween.parallel().tween_property(shadow_node, "scale", shadow_scale * 0.7, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(node, "position:y", orig_pos.y, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if shadow_node and _is_valid(shadow_node):
+		tween.parallel().tween_property(shadow_node, "scale", shadow_scale, dur * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	return tween
+
+
+# =============================================================================
+#  CATALOG DISPATCHER — GlobalTweens.play(node, "category.name", opts)
+#  Bridges the classic singleton to the category catalog (GT_Catalog) and
+#  the safety layer (GT_Safe). See docs/ANIMATIONS.md for the full list.
+# =============================================================================
+
+func _ready() -> void:
+	var registry := {
+		"hit": GT_Hit, "jump": GT_Jump, "death": GT_Death, "squish": GT_Squish,
+		"slime": GT_Slime, "player": GT_Player, "boss": GT_Boss,
+		"ui_buttons": GT_Buttons, "ui_text": GT_Text, "ui_generic": GT_UI,
+		"environment": GT_Env, "fog": GT_Fog, "flash": GT_Flash,
+		"camera": GT_Camera, "fx": GT_FX, "generic": GT_Generic,
+		"audio": GT_Audio,
+	}
+	for category in registry:
+		GT_Catalog.register(category, registry[category].get_defs())
+	print("[GlobalTweens] %d animations ready (%d categories)." % [
+		GT_Catalog.count(), GT_Catalog.categories().size()
+	])
+
+
+## Error handling for invalid calls (null/freed nodes, unknown ids...).
+##   "crash"  (default) — push_error, for development & fixing
+##   "warn"             — push_warning, non-fatal
+##   "ignore"           — skip invalid calls silently (production)
+var error_mode: String:
+	get:
+		return GT_Safe.error_mode
+	set(v):
+		GT_Safe.error_mode = v
+
+
+## Plays a catalog animation with automatic safety + anti-spam.
+func play(node: Variant, id: String, opts := {}) -> Tween:
+	return GT_Catalog.play(node, id, opts)
+
+
+## Kills every tracked animation on the node and restores its snapshot.
+## Any infinite loop (spin, beat_pulse, rainbow, trail, heartbeat...) also stops.
+func stop(node: Variant) -> void:
+	GT_Safe.stop(node)
+
+
+## Stops every tracked node in the project.
+func stop_all() -> void:
+	GT_Safe.stop_all()
+
+
+## Full reset: stop + clear the pause flag so new animations can start at once.
+func reset(node: Variant) -> void:
+	GT_Safe.reset(node)
+
+
+## True when the node still has tracked tweens running.
+func is_animating(node: Variant) -> bool:
+	return GT_Safe.is_animating(node)
+
+
+## Names of all catalog animations, optionally filtered by category.
+func catalog_names(category: String = "") -> Array:
+	return GT_Catalog.names(category)
+
+
+## List of catalog categories.
+func catalog_categories() -> Array:
+	return GT_Catalog.categories()
+
+
+## Total number of catalog animations.
+func catalog_count() -> int:
+	return GT_Catalog.count()

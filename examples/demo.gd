@@ -15,6 +15,7 @@ const TARGETS := {
 	"camera": "camera",
 	"flash": "hero",
 	"fx": "hero",
+	"audio": "audio_player",
 }
 
 var stage: Dictionary = {}
@@ -103,6 +104,9 @@ func _build_stage() -> void:
 	progress.position = Vector2(460, 570)
 	add_child(progress)
 
+	var audio_player := AudioStreamPlayer.new()
+	add_child(audio_player)
+
 	stage = {
 		"hero": hero,
 		"slime": slime,
@@ -112,6 +116,7 @@ func _build_stage() -> void:
 		"demo_button": demo_button,
 		"progress": progress,
 		"camera": camera,
+		"audio_player": audio_player,
 	}
 
 

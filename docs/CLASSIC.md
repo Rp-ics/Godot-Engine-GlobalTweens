@@ -39,7 +39,7 @@ Every helper tween is tracked by the safety layer: `stop()` / `stop_all()` /
 | Light | light_flicker, light_pulse |
 | Exit + free | exit_fade_and_free, exit_slide_and_free, exit_spin_and_free, exit_pop_and_free |
 | Epic / dynamic | epic_ground_slam, epic_energy_charge, dynamic_burst_entry, slam_down |
-| General extension | rubber_band, magnetic_snap, heartbeat, heartbeat_stop, shockwave_scale, warp_entry, death_spiral, flicker_alive, flicker_alive_stop, pendulum_chain, depth_pop, cascade_fade_in, impact_freeze, orbit_around, morph_color_sequence, morph_color_sequence_stop |
+| General extension | rubber_band, magnetic_snap, heartbeat, heartbeat_stop, shockwave_scale, warp_entry, death_spiral, flicker_alive, flicker_alive_stop, pendulum_chain, depth_pop, cascade_fade_in, impact_freeze, orbit_around, morph_color_sequence, morph_color_sequence_stop, jelly_bounce, glow_flicker, glitch_wobble, shadow_float |
 
 ## Loop conventions (classic)
 
